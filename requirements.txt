@@ -1,5 +1,4 @@
 streamlit
-pandas
-scikit-learn
 tmdbv3api
 nltk
+requests
