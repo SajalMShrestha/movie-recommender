@@ -17,10 +17,8 @@ movie_api = Movie()
 st.set_page_config(page_title="Movie Recommender", layout="wide")
 
 # --- App State ---
-if 'favorites' not in st.session_state:
-    st.session_state.favorites = []
-if 'search' not in st.session_state:
-    st.session_state['search'] = ""
+st.session_state.setdefault('favorites', [])
+st.session_state.setdefault('search', "")
 
 # --- Helper: Get Poster URL ---
 def get_poster(movie):
@@ -40,7 +38,7 @@ if query:
         if selected:
             if selected not in st.session_state.favorites and len(st.session_state.favorites) < 5:
                 st.session_state.favorites.append(selected)
-                st.session_state["search"] = ""
+                st.session_state['search'] = ""
                 st.rerun()
 
 # --- Favorites Section ---
