@@ -33,18 +33,17 @@ def search_movies(query):
     except:
         return []
 
-# Enhanced UI: Autocomplete dropdown using st.selectbox only
-all_suggestions = []
-query = st.text_input("Type to search and select a movie")
-if query:
-    suggestions = search_movies(query)
-    all_suggestions = [m.title for m in suggestions if m.title not in st.session_state.favorites]
+# Enhanced UI: Live autocomplete with form-like behavior
+with st.form(key="movie_search_form"):
+    query = st.text_input("Start typing a movie name")
+    submitted = st.form_submit_button("Add")
 
-if all_suggestions:
-    selected = st.selectbox("Click a title to add to favorites", all_suggestions)
-    if selected and selected not in st.session_state.favorites:
-        if len(st.session_state.favorites) < 5:
-            st.session_state.favorites.append(selected)
+if submitted and query:
+    matches = search_movies(query)
+    if matches:
+        top_result = matches[0].title
+        if top_result not in st.session_state.favorites and len(st.session_state.favorites) < 5:
+            st.session_state.favorites.append(top_result)
             st.experimental_rerun()
 
 # Display selected movies with metadata and delete option
