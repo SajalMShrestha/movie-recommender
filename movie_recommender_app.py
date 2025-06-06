@@ -6,6 +6,7 @@ import concurrent.futures
 from datetime import datetime
 import time
 import requests
+import os
 
 # Initialize NLTK
 nltk.download('vader_lexicon')
@@ -13,7 +14,7 @@ sia = SentimentIntensityAnalyzer()
 
 # Initialize TMDb API
 tmdb = TMDb()
-tmdb.api_key = '1ab8629cf19578c0576135e9bd71bb23'
+tmdb.api_key = st.secrets["TMDB_API_KEY"]
 tmdb.language = 'en'
 movie_api = Movie()
 
@@ -26,23 +27,25 @@ st.title("🎬 Movie AI Recommender V2")
 st.write("Search and select up to 5 of your favorite movies. You must choose at least 3.")
 
 # Function to search TMDb movies
-
 def search_movies(query):
     try:
         return movie_api.search(query)[:10]
     except:
         return []
 
-# UI: Live search and enter handling
-query = st.text_input("Search for a movie to add", key="movie_search")
+# Enhanced UI: Autocomplete dropdown using st.selectbox only
+all_suggestions = []
+query = st.text_input("Type to search and select a movie")
 if query:
     suggestions = search_movies(query)
-    suggestion_titles = [m.title for m in suggestions]
-    selected = st.selectbox("Select from results", suggestion_titles)
+    all_suggestions = [m.title for m in suggestions if m.title not in st.session_state.favorites]
+
+if all_suggestions:
+    selected = st.selectbox("Click a title to add to favorites", all_suggestions)
     if selected and selected not in st.session_state.favorites:
         if len(st.session_state.favorites) < 5:
             st.session_state.favorites.append(selected)
-            st.session_state.movie_search = ""  # Reset input after selection
+            st.experimental_rerun()
 
 # Display selected movies with metadata and delete option
 st.subheader("Selected Favorites:")
