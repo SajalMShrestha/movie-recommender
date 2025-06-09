@@ -267,4 +267,14 @@ if st.button("Get Recommendations"):
             recs = recommend_movies(valid_movies)
             st.subheader("🎯 Top 10 Recommendations")
             for title, score in recs:
-                st.markdown(f"- **{title}** (score: {round(score, 2)})")
+                movie_obj = next((m for m in cache.values() if m.title == title), None)
+                if movie_obj:
+                    poster_path = movie_obj.poster_path if hasattr(movie_obj, 'poster_path') else None
+                    poster_url = f"https://image.tmdb.org/t/p/w200{poster_path}" if poster_path else None
+                    col1, col2 = st.columns([1, 4])
+                    with col1:
+                        if poster_url:
+                            st.image(poster_url, width=100)
+                    with col2:
+                        st.markdown(f"**{title}**
+Score: {round(score, 2)}")
