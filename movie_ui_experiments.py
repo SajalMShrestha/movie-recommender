@@ -1,5 +1,5 @@
 import streamlit as st
-from tmdbv3api import TMDb, Movie, Person
+from tmdbv3api import TMDb, Movie
 from datetime import datetime
 import concurrent.futures
 import requests
@@ -13,7 +13,6 @@ tmdb.api_key = st.secrets["TMDB_API_KEY"]
 tmdb.language = 'en'
 tmdb.debug = True
 movie = Movie()
-person = Person()
 sia = SentimentIntensityAnalyzer()
 
 recommendation_weights = {
@@ -59,14 +58,6 @@ def get_mood_score(genres, preferred_moods):
                 matched_moods.add(mood)
     overlap = matched_moods & preferred_moods
     return len(overlap) / len(preferred_moods or [1])
-
-def infer_moods_from_genres(genres):
-    inferred = set()
-    for g in genres:
-        for mood, tags in mood_tone_map.items():
-            if g in tags:
-                inferred.add(mood)
-    return inferred
 
 def infer_mood_from_plot(plot):
     sentiment = sia.polarity_scores(plot)
@@ -137,7 +128,7 @@ def recommend_movies(favorite_titles):
         similar = movie.similar(details.id)
         candidate_movie_ids.update([m.id for m in similar])
 
-    inferred_moods = infer_moods_from_genres(favorite_genres) | inferred_plot_moods
+    inferred_moods = inferred_plot_moods
     user_prefs = {
         "subscribed_platforms": ["netflix", "hbo_max", "prime_video"],
         "preferred_moods": inferred_moods,
@@ -205,20 +196,35 @@ def recommend_movies(favorite_titles):
                 break
     return top_scored, candidate_movies
 
-# ✅ UPDATED display function
+# ✅ UPDATED display function with uniform vertical alignment
 def display_movie_card(movie_obj, index):
     title = getattr(movie_obj, 'title', 'Untitled')
     overview = getattr(movie_obj, 'overview', '') or "No description available."
     poster_path = getattr(movie_obj, 'poster_path', None)
     tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
 
-    st.markdown(f"### {index}. [{title}]({tmdb_link})", unsafe_allow_html=True)
-    if poster_path:
-        st.image(f"https://image.tmdb.org/t/p/w300{poster_path}", width=150)
-    else:
-        st.markdown("🖼️ *No poster available*")
+    with st.container():
+        st.markdown(
+            f"""
+            <div style='display: flex; flex-direction: column; align-items: center; text-align: center; min-height: 530px; padding: 0 10px;'>
+                <h4 style='margin-bottom: 10px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
+        """,
+            unsafe_allow_html=True
+        )
+        if poster_path:
+            st.image(f"https://image.tmdb.org/t/p/w300{poster_path}", width=150)
+        else:
+            st.markdown("🖼️ *No poster available*")
 
-    st.markdown(f"<small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>", unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div style='flex-grow: 1; margin-top: 10px;'>
+                <small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>
+            </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 # 🎬 Streamlit App UI
 st.title("🎬 Movie AI Recommender")
