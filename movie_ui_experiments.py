@@ -1,4 +1,4 @@
-# Streamlit Movie AI Recommender
+# Streamlit Movie AI Recommender with UI Enhancements
 import streamlit as st
 from tmdbv3api import TMDb, Movie, Person
 from collections import defaultdict
@@ -248,7 +248,26 @@ def recommend_movies(favorite_titles):
             top_scored.append((title, score))
             if len(top_scored) == 10:
                 break
-    return top_scored
+    return top_scored, candidate_movies
+
+def display_movie_card(movie_obj, score):
+    title = movie_obj.title
+    overview = movie_obj.overview or "No description available."
+    poster_path = movie_obj.poster_path
+    platform = getattr(movie_obj, 'platform', 'Unknown').replace('_', ' ').title()
+    tmdb_link = f"https://www.themoviedb.org/movie/{movie_obj.id}"
+    vote_count = getattr(movie_obj, 'vote_count', 0)
+
+    st.markdown(f"### [{title}]({tmdb_link})", unsafe_allow_html=True)
+    if poster_path:
+        st.image(f"https://image.tmdb.org/t/p/w300{poster_path}", width=150)
+    else:
+        st.markdown("🖼️ *No poster available*")
+
+    st.markdown(f"**Platform**: {platform} | **Votes**: {vote_count}")
+    st.markdown(f"**Score:** {round(score, 2)}")
+    st.progress(min(score, 1.0))
+    st.markdown(f"<small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>", unsafe_allow_html=True)
 
 # Streamlit UI
 st.title("🎬 Movie AI Recommender")
@@ -264,7 +283,11 @@ if st.button("Get Recommendations"):
         st.warning("Please enter at least 3 movies.")
     else:
         with st.spinner("Finding recommendations..."):
-            recs = recommend_movies(valid_movies)
+            recs, candidate_movies = recommend_movies(valid_movies)
             st.subheader("🎯 Top 10 Recommendations")
-            for title, score in recs:
-                st.markdown(f"- **{title}** (score: {round(score, 2)})")
+            cols = st.columns(2)
+            for idx, (title, score) in enumerate(recs):
+                movie_obj = next((m for m in candidate_movies.values() if m.title == title), None)
+                if movie_obj:
+                    with cols[idx % 2]:
+                        display_movie_card(movie_obj, score)
