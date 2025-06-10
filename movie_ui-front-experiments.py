@@ -205,31 +205,32 @@ def display_movie_card(movie_obj, index):
 
 # --- Streamlit App UI ---
 st.title("🎬 Movie AI Recommender")
-st.write("Enter up to 5 of your favorite movies, and we'll recommend similar ones.")
+st.markdown("Enter up to 5 of your favorite movies, and we'll recommend similar ones.")
 
 # Initialize session state
 if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = []
 
-new_movie = st.text_input("Search and add your favorite movie", key="movie_input")
+new_movie = st.text_input("Search and add your favorite movie")
 
-if new_movie and len(st.session_state.favorite_movies) < 5:
-    if new_movie not in st.session_state.favorite_movies:
-        st.session_state.favorite_movies.append(new_movie)
-        st.experimental_rerun()
+if st.button("➕ Add Movie"):
+    if new_movie:
+        if len(st.session_state.favorite_movies) >= 5:
+            st.warning("You can only add up to 5 movies.")
+        elif new_movie in st.session_state.favorite_movies:
+            st.info("This movie is already in your favorites.")
+        else:
+            st.session_state.favorite_movies.append(new_movie)
+            st.success(f"Added: {new_movie}")
 
 if st.session_state.favorite_movies:
-    st.subheader("⭐ Your Favorite Movies")
+    st.subheader("🎥 Your Favorite Movies")
     for i, title in enumerate(st.session_state.favorite_movies, 1):
         st.markdown(f"{i}. {title}")
 
-if len(st.session_state.favorite_movies) == 5:
-    st.success("You’ve added 5 movies. You can now get recommendations.")
-elif new_movie and new_movie in st.session_state.favorite_movies:
-    st.warning("This movie is already in your list.")
-
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
+    st.experimental_rerun()
 
 if st.button("🎬 Get Recommendations"):
     if len(st.session_state.favorite_movies) < 3:
