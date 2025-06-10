@@ -5,6 +5,7 @@ import concurrent.futures
 import requests
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
+
 nltk.download('vader_lexicon')
 
 # TMDb setup
@@ -15,6 +16,7 @@ tmdb.debug = True
 movie = Movie()
 sia = SentimentIntensityAnalyzer()
 
+# --- Utility setup ---
 recommendation_weights = {
     "genre_similarity": 0.20,
     "cast_crew": 0.25,
@@ -47,6 +49,7 @@ mood_tone_map = {
 }
 immature_genres = {"Family", "Animation", "Kids"}
 
+# --- Feature Functions ---
 def get_maturity_penalty(genres):
     return 0.15 if any(g['name'] in immature_genres for g in genres) else 0
 
@@ -68,12 +71,13 @@ def infer_mood_from_plot(plot):
     else:
         return 'cerebral'
 
-def estimate_user_age(favorite_movies_years):
-    if not favorite_movies_years:
+def estimate_user_age(years):
+    if not years:
         return 30
-    median_year = sorted(favorite_movies_years)[len(favorite_movies_years)//2]
-    return datetime.now().year - median_year + 18
+    median = sorted(years)[len(years)//2]
+    return datetime.now().year - median + 18
 
+# --- Fetch Movie Details ---
 cache = {}
 def fetch_similar_movie_details(m_id):
     if m_id in cache:
@@ -84,34 +88,16 @@ def fetch_similar_movie_details(m_id):
         m_details.genres = m_details.genres
         m_details.cast = list(m_credits['cast'])[:3]
         m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
-        try:
-            tmdb_id = m_details.id
-            headers = {
-                'x-rapidapi-key': st.secrets["RAPIDAPI_KEY"],
-                'x-rapidapi-host': 'streaming-availability.p.rapidapi.com'
-            }
-            response = requests.get(
-                f"https://streaming-availability.p.rapidapi.com/get/basic?tmdb_id=movie%2F{tmdb_id}&output_language=en",
-                headers=headers
-            )
-            data = response.json() if response.status_code == 200 else {}
-            platforms = data.get("streamingInfo", {}).get("us", {})
-            known = list(streaming_platform_priority.keys())
-            for p in platforms:
-                if p.lower() in known:
-                    m_details.platform = p.lower()
-                    break
-        except:
-            m_details.platform = None
         m_details.plot = m_details.overview or ""
         cache[m_id] = m_details
         return m_id, m_details
     except:
         return m_id, None
 
+# --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
     favorite_genres, favorite_actors = set(), set()
-    candidate_movie_ids, inferred_plot_moods, favorite_years = set(), set(), []
+    candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
 
     for title in favorite_titles:
         search_result = movie.search(title)
@@ -122,16 +108,15 @@ def recommend_movies(favorite_titles):
         favorite_genres.update([g['name'] for g in details.genres])
         favorite_actors.update([c['name'] for c in list(credits['cast'])[:3]])
         favorite_actors.update([d['name'] for d in credits['crew'] if d['job'] == 'Director'])
-        inferred_plot_moods.add(infer_mood_from_plot(details.overview or ""))
+        plot_moods.add(infer_mood_from_plot(details.overview or ""))
         if details.release_date:
             favorite_years.append(int(details.release_date[:4]))
         similar = movie.similar(details.id)
         candidate_movie_ids.update([m.id for m in similar])
 
-    inferred_moods = inferred_plot_moods
     user_prefs = {
         "subscribed_platforms": ["netflix", "hbo_max", "prime_video"],
-        "preferred_moods": inferred_moods,
+        "preferred_moods": plot_moods,
         "estimated_age": estimate_user_age(favorite_years)
     }
 
@@ -147,29 +132,24 @@ def recommend_movies(favorite_titles):
         score = 0.0
         genre_overlap = len(set(g['name'] for g in candidate.genres) & favorite_genres)
         score += recommendation_weights["genre_similarity"] * (genre_overlap / len(favorite_genres or [1]))
-
         cast = set(a.name for a in candidate.cast)
         directors = set(getattr(candidate, 'directors', []))
         overlap = (cast | directors) & favorite_actors
         score += recommendation_weights["cast_crew"] * (len(overlap) / len(favorite_actors or [1]))
-
         try:
             year_diff = datetime.now().year - int(candidate.release_date[:4])
-            if year_diff <= 2: score += recommendation_weights["release_year"] * 1.0
-            elif year_diff <= 5: score += recommendation_weights["release_year"] * 0.66
-            elif year_diff <= 15: score += recommendation_weights["release_year"] * 0.33
-        except: pass
-
+            if year_diff <= 2:
+                score += recommendation_weights["release_year"] * 1.0
+            elif year_diff <= 5:
+                score += recommendation_weights["release_year"] * 0.66
+            elif year_diff <= 15:
+                score += recommendation_weights["release_year"] * 0.33
+        except:
+            pass
         score += recommendation_weights["ratings"] * ((candidate.vote_average or 0) / 10.0)
-
-        platform = getattr(candidate, 'platform', None)
-        if platform in user_prefs["subscribed_platforms"]:
-            score += recommendation_weights["streaming_availability"] * streaming_platform_priority.get(platform, 0.5)
-
         score += recommendation_weights["mood_tone"] * get_mood_score(candidate.genres, user_prefs["preferred_moods"])
         score += recommendation_weights["trending_factor"] * 0.5
         score -= get_maturity_penalty(candidate.genres)
-
         try:
             release_year = int(candidate.release_date[:4])
             user_age_at_release = user_prefs["estimated_age"] - (datetime.now().year - release_year)
@@ -177,8 +157,8 @@ def recommend_movies(favorite_titles):
                 score += recommendation_weights["age_alignment"] * 1.0
             elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
                 score += recommendation_weights["age_alignment"] * 0.5
-        except: pass
-
+        except:
+            pass
         return max(score, 0)
 
     scored = [(m.title, compute_score(m) + min(m.vote_count, 1000)/20000.0) for m in candidate_movies.values()]
@@ -196,13 +176,21 @@ def recommend_movies(favorite_titles):
                 break
     return top_scored, candidate_movies
 
-# ✅ DISPLAY FUNCTION WITH ALIGNMENT
-
+# --- Display Movie Cards ---
 def display_movie_card(movie_obj, index):
+    import textwrap
     title = getattr(movie_obj, 'title', 'Untitled')
     overview = getattr(movie_obj, 'overview', '') or "No description available."
     poster_path = getattr(movie_obj, 'poster_path', None)
     tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
+
+    words = overview.split()
+    if len(words) > 50:
+        short_description = " ".join(words[:50]) + "..."
+        read_more_link = f"<a href='{tmdb_link}' target='_blank'>Read more</a>"
+    else:
+        short_description = overview
+        read_more_link = ""
 
     card_html = f"""
     <div style='display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; height: 100%; border: 1px solid #333; border-radius: 10px; padding: 10px; box-sizing: border-box;'>
@@ -211,13 +199,13 @@ def display_movie_card(movie_obj, index):
             {'<img src="https://image.tmdb.org/t/p/w300' + poster_path + '" width="150">' if poster_path else '🖼️ <i>No poster available</i>'}
         </div>
         <div style='margin-top: 10px;'>
-            <small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>
+            <small>{short_description} {read_more_link}</small>
         </div>
     </div>
     """
     st.markdown(card_html, unsafe_allow_html=True)
 
-# 🎬 STREAMLIT UI
+# --- Streamlit UI ---
 st.title("🎬 Movie AI Recommender")
 st.write("Enter up to 5 of your favorite movies, and we'll recommend similar ones.")
 
