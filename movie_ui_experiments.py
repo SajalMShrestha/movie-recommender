@@ -61,7 +61,7 @@ def get_mood_score(genres, preferred_moods):
             if g['name'] in tags:
                 matched_moods.add(mood)
     overlap = matched_moods & preferred_moods
-    return len(overlap) / len(preferred_moods or [1])
+    return len(overlap) / max(len(preferred_moods), 1)
 
 def infer_mood_from_plot(plot):
     sentiment = sia.polarity_scores(plot)
@@ -132,11 +132,11 @@ def recommend_movies(favorite_titles):
     def compute_score(candidate):
         score = 0.0
         genre_overlap = len(set(g['name'] for g in candidate.genres) & favorite_genres)
-        score += recommendation_weights["genre_similarity"] * (genre_overlap / len(favorite_genres or [1]))
+        score += recommendation_weights["genre_similarity"] * (genre_overlap / max(len(favorite_genres), 1))
         cast = set(a.name for a in candidate.cast)
         directors = set(getattr(candidate, 'directors', []))
         overlap = (cast | directors) & favorite_actors
-        score += recommendation_weights["cast_crew"] * (len(overlap) / len(favorite_actors or [1]))
+        score += recommendation_weights["cast_crew"] * (len(overlap) / max(len(favorite_actors), 1))
         try:
             year_diff = datetime.now().year - int(candidate.release_date[:4])
             if year_diff <= 2:
@@ -194,7 +194,7 @@ def display_movie_card(movie_obj, index):
         read_more_html = ""
 
     card_html = f"""
-    <div style='display: flex; flex-direction: column; justify-content: flex-start; align-items: center; text-align: center; height: 500px; width: 100%; border: 1px solid #333; border-radius: 10px; padding: 10px; box-sizing: border-box;'>
+    <div style='display: flex; flex-direction: column; justify-content: flex-start; align-items: center; text-align: center; height: 500px; width: 100%; border: 1px solid #333; border-radius: 10px; padding: 10px; box-sizing: border-box; margin-bottom: 10%;'>
         <img src='https://image.tmdb.org/t/p/w300{poster_path}' alt='Poster' width='150' style='margin-bottom: 10px; border-radius: 4px;'>
         <h4 style='margin: 10px 0 4px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
         <div style='margin-top: 4px; font-size: 12px;'>
