@@ -196,37 +196,28 @@ def recommend_movies(favorite_titles):
                 break
     return top_scored, candidate_movies
 
-# ✅ UPDATED display function with uniform vertical alignment
+# ✅ DISPLAY FUNCTION WITH ALIGNMENT
+
 def display_movie_card(movie_obj, index):
     title = getattr(movie_obj, 'title', 'Untitled')
     overview = getattr(movie_obj, 'overview', '') or "No description available."
     poster_path = getattr(movie_obj, 'poster_path', None)
     tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
 
-    with st.container():
-        st.markdown(
-            f"""
-            <div style='display: flex; flex-direction: column; align-items: center; text-align: center; min-height: 530px; padding: 0 10px;'>
-                <h4 style='margin-bottom: 10px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
-        """,
-            unsafe_allow_html=True
-        )
-        if poster_path:
-            st.image(f"https://image.tmdb.org/t/p/w300{poster_path}", width=150)
-        else:
-            st.markdown("🖼️ *No poster available*")
+    card_html = f"""
+    <div style='display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; height: 100%; border: 1px solid #333; border-radius: 10px; padding: 10px; box-sizing: border-box;'>
+        <h4 style='margin-bottom: 10px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
+        <div>
+            {'<img src="https://image.tmdb.org/t/p/w300' + poster_path + '" width="150">' if poster_path else '🖼️ <i>No poster available</i>'}
+        </div>
+        <div style='margin-top: 10px;'>
+            <small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>
+        </div>
+    </div>
+    """
+    st.markdown(card_html, unsafe_allow_html=True)
 
-        st.markdown(
-            f"""
-            <div style='flex-grow: 1; margin-top: 10px;'>
-                <small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>
-            </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-# 🎬 Streamlit App UI
+# 🎬 STREAMLIT UI
 st.title("🎬 Movie AI Recommender")
 st.write("Enter up to 5 of your favorite movies, and we'll recommend similar ones.")
 
