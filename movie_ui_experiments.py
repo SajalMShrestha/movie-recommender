@@ -16,7 +16,7 @@ tmdb.debug = True
 movie = Movie()
 sia = SentimentIntensityAnalyzer()
 
-# Weights and configs
+# --- Recommendation weights and platform priorities ---
 recommendation_weights = {
     "genre_similarity": 0.20,
     "cast_crew": 0.25,
@@ -50,7 +50,7 @@ mood_tone_map = {
 
 immature_genres = {"Family", "Animation", "Kids"}
 
-# Utility functions
+# --- Feature Functions ---
 def get_maturity_penalty(genres):
     return 0.15 if any(g['name'] in immature_genres for g in genres) else 0
 
@@ -75,10 +75,10 @@ def infer_mood_from_plot(plot):
 def estimate_user_age(years):
     if not years:
         return 30
-    median = sorted(years)[len(years) // 2]
+    median = sorted(years)[len(years)//2]
     return datetime.now().year - median + 18
 
-# Cache and fetch
+# --- Caching and Movie Details Fetch ---
 cache = {}
 def fetch_similar_movie_details(m_id):
     if m_id in cache:
@@ -95,7 +95,7 @@ def fetch_similar_movie_details(m_id):
     except:
         return m_id, None
 
-# Recommend logic
+# --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
     favorite_genres, favorite_actors = set(), set()
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
@@ -184,7 +184,7 @@ def display_movie_card(movie_obj, index):
     poster_path = getattr(movie_obj, 'poster_path', None)
     tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
 
-    # Limit to ~50 words
+    # Limit to approximately 50 words
     words = overview.split()
     if len(words) > 50:
         short_description = " ".join(words[:50]) + "..."
@@ -196,8 +196,10 @@ def display_movie_card(movie_obj, index):
     card_html = f"""
     <div style='display: flex; flex-direction: column; justify-content: flex-start; align-items: center; text-align: center; height: 500px; width: 100%; border: 1px solid #333; border-radius: 10px; padding: 10px; box-sizing: border-box;'>
         <img src='https://image.tmdb.org/t/p/w300{poster_path}' alt='Poster' width='150' style='margin-bottom: 10px; border-radius: 4px;'>
-        <h4 style='margin: 8px 0 4px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
-        <div style='margin-top: auto; font-size: 12px;'>{short_description}<br>{read_more_html}</div>
+        <h4 style='margin: 10px 0 4px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
+        <div style='margin-top: 4px; font-size: 12px;'>
+            {short_description} <br> {read_more_html}
+        </div>
     </div>
     """
     st.markdown(card_html, unsafe_allow_html=True)
