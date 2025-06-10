@@ -184,7 +184,6 @@ def display_movie_card(movie_obj, index):
     poster_path = getattr(movie_obj, 'poster_path', None)
     tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
 
-    # Limit to approximately 50 words
     words = overview.split()
     if len(words) > 50:
         short_description = " ".join(words[:50]) + "..."
@@ -208,15 +207,36 @@ def display_movie_card(movie_obj, index):
 st.title("🎬 Movie AI Recommender")
 st.write("Enter up to 5 of your favorite movies, and we'll recommend similar ones.")
 
-movie_inputs = [st.text_input(f"Favorite Movie {i+1}") for i in range(5)]
+# Initialize session state
+if "favorite_movies" not in st.session_state:
+    st.session_state.favorite_movies = []
 
-if st.button("Get Recommendations"):
-    valid_movies = [m for m in movie_inputs if m.strip()]
-    if len(valid_movies) < 3:
-        st.warning("Please enter at least 3 movies.")
+new_movie = st.text_input("Search and add your favorite movie", key="movie_input")
+
+if new_movie and len(st.session_state.favorite_movies) < 5:
+    if new_movie not in st.session_state.favorite_movies:
+        st.session_state.favorite_movies.append(new_movie)
+        st.experimental_rerun()
+
+if st.session_state.favorite_movies:
+    st.subheader("⭐ Your Favorite Movies")
+    for i, title in enumerate(st.session_state.favorite_movies, 1):
+        st.markdown(f"{i}. {title}")
+
+if len(st.session_state.favorite_movies) == 5:
+    st.success("You’ve added 5 movies. You can now get recommendations.")
+elif new_movie and new_movie in st.session_state.favorite_movies:
+    st.warning("This movie is already in your list.")
+
+if st.button("❌ Clear All"):
+    st.session_state.favorite_movies = []
+
+if st.button("🎬 Get Recommendations"):
+    if len(st.session_state.favorite_movies) < 3:
+        st.warning("Please add at least 3 movies to get recommendations.")
     else:
         with st.spinner("Finding recommendations..."):
-            recs, candidate_movies = recommend_movies(valid_movies)
+            recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
             st.subheader("🎯 Top 10 Recommendations")
             cols = st.columns(4)
             for idx, (title, _) in enumerate(recs):
