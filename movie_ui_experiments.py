@@ -83,50 +83,6 @@ def estimate_user_age(favorite_movies_years):
     median_year = sorted(favorite_movies_years)[len(favorite_movies_years)//2]
     return datetime.now().year - median_year + 18
 
-def compute_score(candidate, favorite_genres, favorite_actors, user_preferences):
-    score = 0.0
-    candidate_genres = set(g['name'] for g in candidate.genres)
-    genre_overlap = len(candidate_genres & favorite_genres)
-    score += recommendation_weights["genre_similarity"] * (genre_overlap / len(favorite_genres or [1]))
-
-    candidate_cast = set(a.name for a in candidate.cast)
-    candidate_directors = set(getattr(candidate, 'directors', []))
-    overlap = (candidate_cast | candidate_directors) & favorite_actors
-    score += recommendation_weights["cast_crew"] * (len(overlap) / len(favorite_actors or [1]))
-
-    try:
-        year_diff = datetime.now().year - int(candidate.release_date[:4])
-        if year_diff <= 2:
-            score += recommendation_weights["release_year"] * 1.0
-        elif year_diff <= 5:
-            score += recommendation_weights["release_year"] * 0.66
-        elif year_diff <= 15:
-            score += recommendation_weights["release_year"] * 0.33
-    except:
-        pass
-
-    score += recommendation_weights["ratings"] * ((candidate.vote_average or 0) / 10.0)
-
-    platform = getattr(candidate, 'platform', None)
-    if platform in user_preferences["subscribed_platforms"]:
-        score += recommendation_weights["streaming_availability"] * streaming_platform_priority.get(platform, 0.5)
-
-    score += recommendation_weights["mood_tone"] * get_mood_score(candidate.genres, user_preferences["preferred_moods"])
-    score += recommendation_weights["trending_factor"] * 0.5
-    score -= get_maturity_penalty(candidate.genres)
-
-    try:
-        release_year = int(candidate.release_date[:4])
-        user_age_at_release = user_preferences["estimated_age"] - (datetime.now().year - release_year)
-        if 15 <= user_age_at_release <= 25:
-            score += recommendation_weights["age_alignment"] * 1.0
-        elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
-            score += recommendation_weights["age_alignment"] * 0.5
-    except:
-        pass
-
-    return max(score, 0)
-
 cache = {}
 def fetch_similar_movie_details(m_id):
     if m_id in cache:
@@ -196,7 +152,45 @@ def recommend_movies(favorite_titles):
             if m and getattr(m, 'vote_count', 0) >= 20:
                 candidate_movies[m_id] = m
 
-    scored = [(m.title, compute_score(m, favorite_genres, favorite_actors, user_prefs) + min(m.vote_count, 1000)/20000.0) for m in candidate_movies.values()]
+    def compute_score(candidate):
+        score = 0.0
+        genre_overlap = len(set(g['name'] for g in candidate.genres) & favorite_genres)
+        score += recommendation_weights["genre_similarity"] * (genre_overlap / len(favorite_genres or [1]))
+
+        cast = set(a.name for a in candidate.cast)
+        directors = set(getattr(candidate, 'directors', []))
+        overlap = (cast | directors) & favorite_actors
+        score += recommendation_weights["cast_crew"] * (len(overlap) / len(favorite_actors or [1]))
+
+        try:
+            year_diff = datetime.now().year - int(candidate.release_date[:4])
+            if year_diff <= 2: score += recommendation_weights["release_year"] * 1.0
+            elif year_diff <= 5: score += recommendation_weights["release_year"] * 0.66
+            elif year_diff <= 15: score += recommendation_weights["release_year"] * 0.33
+        except: pass
+
+        score += recommendation_weights["ratings"] * ((candidate.vote_average or 0) / 10.0)
+
+        platform = getattr(candidate, 'platform', None)
+        if platform in user_prefs["subscribed_platforms"]:
+            score += recommendation_weights["streaming_availability"] * streaming_platform_priority.get(platform, 0.5)
+
+        score += recommendation_weights["mood_tone"] * get_mood_score(candidate.genres, user_prefs["preferred_moods"])
+        score += recommendation_weights["trending_factor"] * 0.5
+        score -= get_maturity_penalty(candidate.genres)
+
+        try:
+            release_year = int(candidate.release_date[:4])
+            user_age_at_release = user_prefs["estimated_age"] - (datetime.now().year - release_year)
+            if 15 <= user_age_at_release <= 25:
+                score += recommendation_weights["age_alignment"] * 1.0
+            elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
+                score += recommendation_weights["age_alignment"] * 0.5
+        except: pass
+
+        return max(score, 0)
+
+    scored = [(m.title, compute_score(m) + min(m.vote_count, 1000)/20000.0) for m in candidate_movies.values()]
     top_scored = []
     low_votes = 0
     for title, score in sorted(scored, key=lambda x: x[1], reverse=True):
@@ -212,24 +206,18 @@ def recommend_movies(favorite_titles):
     return top_scored, candidate_movies
 
 # ✅ UPDATED display function
-def display_movie_card(movie_obj, score):
+def display_movie_card(movie_obj, index):
     title = getattr(movie_obj, 'title', 'Untitled')
     overview = getattr(movie_obj, 'overview', '') or "No description available."
     poster_path = getattr(movie_obj, 'poster_path', None)
-    platform_raw = getattr(movie_obj, 'platform', None)
-    platform = platform_raw.replace('_', ' ').title() if isinstance(platform_raw, str) else "Unknown"
     tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
-    vote_count = getattr(movie_obj, 'vote_count', 0)
 
-    st.markdown(f"### [{title}]({tmdb_link})", unsafe_allow_html=True)
+    st.markdown(f"### {index}. [{title}]({tmdb_link})", unsafe_allow_html=True)
     if poster_path:
         st.image(f"https://image.tmdb.org/t/p/w300{poster_path}", width=150)
     else:
         st.markdown("🖼️ *No poster available*")
 
-    st.markdown(f"**Platform**: {platform} | **Votes**: {vote_count}")
-    st.markdown(f"**Score:** {round(score, 2)}")
-    st.progress(min(score, 1.0))
     st.markdown(f"<small>{overview[:250]}{'...' if len(overview) > 250 else ''}</small>", unsafe_allow_html=True)
 
 # 🎬 Streamlit App UI
@@ -246,9 +234,9 @@ if st.button("Get Recommendations"):
         with st.spinner("Finding recommendations..."):
             recs, candidate_movies = recommend_movies(valid_movies)
             st.subheader("🎯 Top 10 Recommendations")
-            cols = st.columns(2)
-            for idx, (title, score) in enumerate(recs):
+            cols = st.columns(4)
+            for idx, (title, _) in enumerate(recs):
                 movie_obj = next((m for m in candidate_movies.values() if m.title == title), None)
                 if movie_obj:
-                    with cols[idx % 2]:
-                        display_movie_card(movie_obj, score)
+                    with cols[idx % 4]:
+                        display_movie_card(movie_obj, idx + 1)
