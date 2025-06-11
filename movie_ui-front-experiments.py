@@ -211,19 +211,22 @@ st.markdown("Enter up to 5 of your favorite movies, and we'll recommend similar 
 if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = []
 
-new_movie = st.text_input("Search and add your favorite movie")
+if "movie_input" not in st.session_state:
+    st.session_state.movie_input = ""
 
-add_movie_clicked = st.button("➕ Add Movie")
+new_movie = st.text_input("Search and add your favorite movie", value=st.session_state.movie_input, key="movie_input")
 
-if add_movie_clicked:
-    if new_movie:
-        if new_movie in st.session_state.favorite_movies:
-            st.info("This movie is already in your favorites.")
-        elif len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies.")
-        else:
+# Automatically add movie on Enter
+if new_movie:
+    if new_movie not in st.session_state.favorite_movies:
+        if len(st.session_state.favorite_movies) < 5:
             st.session_state.favorite_movies.append(new_movie)
-            st.success(f"Added: {new_movie}")
+        else:
+            st.warning("You can only add up to 5 movies.")
+    else:
+        st.info("This movie is already in your favorites.")
+    st.session_state.movie_input = ""  # Reset input field
+    st.experimental_rerun()
 
 if st.session_state.favorite_movies:
     st.subheader("🎥 Your Favorite Movies")
@@ -232,9 +235,11 @@ if st.session_state.favorite_movies:
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
+    st.session_state.movie_input = ""
     st.experimental_rerun()
 
 if st.button("🎬 Get Recommendations"):
+    st.session_state.movie_input = ""
     if len(st.session_state.favorite_movies) < 3:
         st.warning("Please add at least 3 movies to get recommendations.")
     else:
