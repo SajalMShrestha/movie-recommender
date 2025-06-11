@@ -178,7 +178,30 @@ def recommend_movies(favorite_titles):
     return top_scored, candidate_movies
 
 # --- Display Movie Cards ---
-# [Unchanged — omitted for brevity, but is present in your code]
+def display_movie_card(movie_obj, index):
+    title = getattr(movie_obj, 'title', 'Untitled')
+    overview = getattr(movie_obj, 'overview', '') or "No description available."
+    poster_path = getattr(movie_obj, 'poster_path', None)
+    tmdb_link = f"https://www.themoviedb.org/movie/{getattr(movie_obj, 'id', '')}"
+
+    words = overview.split()
+    if len(words) > 50:
+        short_description = " ".join(words[:50]) + "..."
+        read_more_html = f"<a href='{tmdb_link}' target='_blank' style='color: #3399ff;'>Read more</a>"
+    else:
+        short_description = overview
+        read_more_html = ""
+
+    card_html = f"""
+    <div style='display: flex; flex-direction: column; justify-content: flex-start; align-items: center; text-align: center; height: 500px; width: 100%; border: 1px solid #333; border-radius: 10px; padding: 10px; box-sizing: border-box; margin-bottom: 10%;'>
+        <img src='https://image.tmdb.org/t/p/w300{poster_path}' alt='Poster' width='150' style='margin-bottom: 10px; border-radius: 4px;'>
+        <h4 style='margin: 10px 0 4px;'>{index}. <a href='{tmdb_link}' target='_blank' style='text-decoration: none; color: #3399ff;'>{title}</a></h4>
+        <div style='margin-top: 4px; font-size: 12px;'>
+            {short_description} <br> {read_more_html}
+        </div>
+    </div>
+    """
+    st.markdown(card_html, unsafe_allow_html=True)
 
 # --- Streamlit App UI ---
 st.title("🎬 Movie AI Recommender")
