@@ -235,7 +235,7 @@ if st.session_state.favorite_movies:
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
-    st.session_state.movie_input = ""
+    st.session_state["movie_input"] = ""
     st.experimental_rerun()
 
 if st.button("🎬 Get Recommendations"):
