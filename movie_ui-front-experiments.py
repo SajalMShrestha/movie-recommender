@@ -212,9 +212,7 @@ if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = []
 
 if "movie_input" not in st.session_state:
-    st.session_state["movie_input"] = ""
-
-st.text_input("Search and add your favorite movie", key="movie_input", on_change=add_movie_to_favorites)) if st.session_state.movie_input.strip() not in st.session_state.favorite_movies and len(st.session_state.favorite_movies) < 5 else None)
+    st.session_state.movie_input = ""
 
 def add_movie_to_favorites():
     movie = st.session_state.movie_input.strip()
@@ -227,8 +225,7 @@ def add_movie_to_favorites():
         st.info("This movie is already in your favorites.")
     st.session_state.movie_input = ""
 
-if "movie_input" in st.session_state and (not new_movie or new_movie in st.session_state.favorite_movies or len(st.session_state.favorite_movies) >= 5):
-    del st.session_state["movie_input"]
+st.text_input("Search and add your favorite movie", key="movie_input", on_change=add_movie_to_favorites)
 
 if st.session_state.favorite_movies:
     st.subheader("🎥 Your Favorite Movies")
@@ -241,9 +238,6 @@ if st.button("❌ Clear All"):
     st.experimental_rerun()
 
 if st.button("🎬 Get Recommendations"):
-    # Resetting input after rerun logic
-    if "movie_input" in st.session_state:
-        del st.session_state["movie_input"]
     if len(st.session_state.favorite_movies) < 3:
         st.warning("Please add at least 3 movies to get recommendations.")
     else:
