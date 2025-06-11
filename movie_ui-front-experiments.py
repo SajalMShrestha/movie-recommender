@@ -214,20 +214,19 @@ if "favorite_movies" not in st.session_state:
 if "movie_input" not in st.session_state:
     st.session_state["movie_input"] = ""
 
-new_movie = st.text_input("Search and add your favorite movie", key="movie_input").strip()
+st.text_input("Search and add your favorite movie", key="movie_input", on_change=add_movie_to_favorites)) if st.session_state.movie_input.strip() not in st.session_state.favorite_movies and len(st.session_state.favorite_movies) < 5 else None)
 
-# Automatically add movie on Enter
-if new_movie:
-    if new_movie not in st.session_state.favorite_movies:
+def add_movie_to_favorites():
+    movie = st.session_state.movie_input.strip()
+    if movie and movie not in st.session_state.favorite_movies:
         if len(st.session_state.favorite_movies) < 5:
-            st.session_state.favorite_movies.append(new_movie)
-            st.experimental_rerun()
+            st.session_state.favorite_movies.append(movie)
         else:
             st.warning("You can only add up to 5 movies.")
-    else:
+    elif movie in st.session_state.favorite_movies:
         st.info("This movie is already in your favorites.")
+    st.session_state.movie_input = ""
 
-# Reset input safely outside rerun scope
 if "movie_input" in st.session_state and (not new_movie or new_movie in st.session_state.favorite_movies or len(st.session_state.favorite_movies) >= 5):
     del st.session_state["movie_input"]
 
