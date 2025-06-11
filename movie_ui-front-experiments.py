@@ -239,7 +239,9 @@ if st.button("❌ Clear All"):
     st.experimental_rerun()
 
 if st.button("🎬 Get Recommendations"):
-    st.session_state.movie_input = ""
+    # Resetting input after rerun logic
+    if "movie_input" in st.session_state:
+        del st.session_state["movie_input"]
     if len(st.session_state.favorite_movies) < 3:
         st.warning("Please add at least 3 movies to get recommendations.")
     else:
