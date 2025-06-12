@@ -14,6 +14,7 @@ sia = SentimentIntensityAnalyzer()
 tmdb = TMDb()
 tmdb.api_key = st.secrets["TMDB_API_KEY"]
 tmdb.language = 'en'
+tmdb.debug = True
 movie = Movie()
 
 # Recommendation Weights
