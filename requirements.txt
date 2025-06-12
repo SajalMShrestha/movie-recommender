@@ -1,4 +1,6 @@
 streamlit
+pyrebase4
+firebase-admin
 tmdbv3api
 nltk
 requests
