@@ -1,5 +1,5 @@
 from auth_ui import login_signup_ui
-from firebase_config import save_user_data, load_user_data
+from firebase_config import auth, save_user_data, load_user_data
 import streamlit as st
 from tmdbv3api import TMDb, Movie
 from datetime import datetime
@@ -8,10 +8,14 @@ import requests
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 
-# Check if user is logged in
+# --- Login and Session Setup ---
 if "user" not in st.session_state:
-    login_signup_ui()
-    st.stop()
+    user = login_signup_ui()
+    if user:
+        st.session_state["user"] = user
+        st.session_state["email"] = user["email"]
+    else:
+        st.stop()
 
 nltk.download('vader_lexicon')
 
