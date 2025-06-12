@@ -1,6 +1,7 @@
 import pyrebase
 import firebase_admin
 from firebase_admin import credentials, firestore
+import streamlit as st
 
 # Pyrebase config (for login/signup)
 firebaseConfig = {
@@ -18,8 +19,21 @@ firebaseConfig = {
 firebase = pyrebase.initialize_app(firebaseConfig)
 auth = firebase.auth()
 
-# Firebase Admin SDK for Firestore (corrected file name)
-cred = credentials.Certificate("firebase-service-account.json")  # ✅ UPDATE this line
+# Firebase Admin SDK using Streamlit secrets
+firebase_secrets = {
+    "type": st.secrets["firebase_type"],
+    "project_id": st.secrets["firebase_project_id"],
+    "private_key_id": st.secrets["firebase_private_key_id"],
+    "private_key": st.secrets["firebase_private_key"],
+    "client_email": st.secrets["firebase_client_email"],
+    "client_id": st.secrets["firebase_client_id"],
+    "auth_uri": st.secrets["firebase_auth_uri"],
+    "token_uri": st.secrets["firebase_token_uri"],
+    "auth_provider_x509_cert_url": st.secrets["firebase_auth_provider_x509_cert_url"],
+    "client_x509_cert_url": st.secrets["firebase_client_x509_cert_url"]
+}
+
+cred = credentials.Certificate(firebase_secrets)
 firebase_admin.initialize_app(cred)
 
 # Firestore DB client
