@@ -178,7 +178,7 @@ def recommend_movies(favorite_titles):
     return top_scored, candidate_movies
 
 # --- Streamlit App UI ---
-st.title("\ud83c\udfac Movie AI Recommender")
+st.title("🎬 Movie AI Recommender")
 st.markdown("Enter up to 5 of your favorite movies, and we'll recommend similar ones.")
 
 # Initialize session state
@@ -202,17 +202,17 @@ def add_movie_to_favorites():
 st.text_input("Search and add your favorite movie", key="movie_input", on_change=add_movie_to_favorites)
 
 if st.session_state.favorite_movies:
-    st.subheader("\ud83c\udfa5 Your Favorite Movies")
+    st.subheader("🎥 Your Favorite Movies")
     for i, title in enumerate(st.session_state.favorite_movies, 1):
         st.markdown(f"{i}. {title}")
 
-if st.button("\u274c Clear All"):
+if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
     st.session_state["movie_input"] = ""
     st.experimental_rerun()
 
 if "recs" not in st.session_state or "candidate_movies" not in st.session_state:
-    if st.button("\ud83c\udfac Get Recommendations"):
+    if st.button("🎬 Get Recommendations"):
         if len(st.session_state.favorite_movies) < 3:
             st.warning("Please add at least 3 movies to get recommendations.")
         else:
@@ -223,7 +223,7 @@ if "recs" not in st.session_state or "candidate_movies" not in st.session_state:
 else:
     recs = st.session_state.recs
     candidate_movies = st.session_state.candidate_movies
-    st.subheader("\ud83c\udfaf Your Top 10 Movie Recommendations")
+    st.subheader("🎯 Your Top 10 Movie Recommendations")
 
     def save_feedback_to_csv():
         from datetime import datetime
@@ -241,7 +241,7 @@ else:
         if feedback_rows:
             df = pd.DataFrame(feedback_rows)
             df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
-            st.success("\u2705 Feedback saved!")
+            st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(recs):
         movie_obj = next((m for m in candidate_movies.values() if m.title == title), None)
@@ -280,5 +280,5 @@ else:
 
         st.markdown("---")
 
-    if st.button("\ud83d\udcc5 Submit Feedback"):
+    if st.button("📥 Submit Feedback"):
         save_feedback_to_csv()
