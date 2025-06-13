@@ -5,12 +5,12 @@ import json
 import os
 import tempfile
 
-# Convert secrets to a temporary JSON file
+# --- Create Firebase Credential File from Streamlit Secrets ---
 firebase_dict = {
     "type": st.secrets["firebase_type"],
     "project_id": st.secrets["firebase_project_id"],
     "private_key_id": st.secrets["firebase_private_key_id"],
-    "private_key": st.secrets["firebase_private_key"].replace("\\n", "\n"),
+    "private_key": st.secrets["firebase_private_key"],
     "client_email": st.secrets["firebase_client_email"],
     "client_id": st.secrets["firebase_client_id"],
     "auth_uri": st.secrets["firebase_auth_uri"],
@@ -19,17 +19,16 @@ firebase_dict = {
     "client_x509_cert_url": st.secrets["firebase_client_x509_cert_url"]
 }
 
-# Write to a temp file
 with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
     json.dump(firebase_dict, f)
     temp_filename = f.name
 
-# Initialize Firebase
+# --- Initialize Firebase Admin SDK ---
 if not firebase_admin._apps:
     cred = credentials.Certificate(temp_filename)
     firebase_admin.initialize_app(cred)
 
-# Auth and Firestore
+# --- Firebase Services ---
 auth = firebase_auth
 db = firestore.client()
 
