@@ -237,13 +237,20 @@ if st.button("❌ Clear All"):
     st.session_state["movie_input"] = ""
     st.experimental_rerun()
 
-if st.button("🎬 Get Recommendations"):
+if st.button("\ud83c\udfac Get Recommendations"):
     if len(st.session_state.favorite_movies) < 3:
         st.warning("Please add at least 3 movies to get recommendations.")
     else:
         with st.spinner("Finding recommendations..."):
-            recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
-            st.subheader("🎯 Your Top 10 Movie Recommendations")
+            if "recs" not in st.session_state or "candidate_movies" not in st.session_state:
+                recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
+                st.session_state.recs = recs
+                st.session_state.candidate_movies = candidate_movies
+            else:
+                recs = st.session_state.recs
+                candidate_movies = st.session_state.candidate_movies
+
+            st.subheader("\ud83c\udfaf Your Top 10 Movie Recommendations")
 
             def save_feedback_to_csv():
                 from datetime import datetime
@@ -261,7 +268,7 @@ if st.button("🎬 Get Recommendations"):
                 if feedback_rows:
                     df = pd.DataFrame(feedback_rows)
                     df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
-                    st.success("✅ Feedback saved!")
+                    st.success("\u2705 Feedback saved!")
 
             for idx, (title, _) in enumerate(recs):
                 movie_obj = next((m for m in candidate_movies.values() if m.title == title), None)
@@ -285,7 +292,12 @@ if st.button("🎬 Get Recommendations"):
 
                 with col3:
                     feedback_key = f"{movie_obj.id}_feedback"
-                    response = st.radio("Would you watch this?", ["Yes", "No", "Already watched"], key=feedback_key)
+                    response = st.radio(
+                        "Would you watch this?",
+                        ["Yes", "No", "Already watched"],
+                        index=None,
+                        key=feedback_key
+                    )
 
                     rating = None
                     if response == "Already watched":
@@ -300,5 +312,5 @@ if st.button("🎬 Get Recommendations"):
 
                 st.markdown("---")  # Separator between movie blocks
 
-            if st.button("📥 Submit Feedback"):
+            if st.button("\ud83d\udcc5 Submit Feedback"):
                 save_feedback_to_csv()
