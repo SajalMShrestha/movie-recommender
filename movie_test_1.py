@@ -185,21 +185,21 @@ st.markdown("Enter up to 5 of your favorite movies, and we'll recommend similar 
 if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = []
 
-if "movie_input" not in st.session_state:
-    st.session_state.movie_input = ""
+movie_input = st.text_input("Search your favorite movie title")
+suggestions = movie.search(movie_input) if movie_input else []
+movie_options = [f"{m.title} ({m.release_date[:4]})" if m.release_date else m.title for m in suggestions]
+selected_movie = st.selectbox("Select from suggestions:", options=movie_options) if suggestions else None
 
-def add_movie_to_favorites():
-    movie = st.session_state.movie_input.strip()
-    if movie and movie not in st.session_state.favorite_movies:
+if selected_movie:
+    clean_title = selected_movie.split("(")[0].strip()
+    if clean_title not in st.session_state.favorite_movies:
         if len(st.session_state.favorite_movies) < 5:
-            st.session_state.favorite_movies.append(movie)
+            st.session_state.favorite_movies.append(clean_title)
+            st.success(f"✅ '{clean_title}' added to favorites.")
         else:
             st.warning("You can only add up to 5 movies.")
-    elif movie in st.session_state.favorite_movies:
+    else:
         st.info("This movie is already in your favorites.")
-    st.session_state.movie_input = ""
-
-st.text_input("Search and add your favorite movie", key="movie_input", on_change=add_movie_to_favorites)
 
 if st.session_state.favorite_movies:
     st.subheader("🎥 Your Favorite Movies")
@@ -208,7 +208,6 @@ if st.session_state.favorite_movies:
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
-    st.session_state["movie_input"] = ""
     st.experimental_rerun()
 
 if "recs" not in st.session_state or "candidate_movies" not in st.session_state:
