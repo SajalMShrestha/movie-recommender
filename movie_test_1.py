@@ -243,10 +243,62 @@ if st.button("🎬 Get Recommendations"):
     else:
         with st.spinner("Finding recommendations..."):
             recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
-            st.subheader("🎯 Top 10 Recommendations")
-            cols = st.columns(4)
+            st.subheader("🎯 Your Top 10 Movie Recommendations")
+
+            def save_feedback_to_csv():
+                from datetime import datetime
+                import pandas as pd
+
+                feedback_rows = []
+                for key, val in st.session_state.items():
+                    if key.startswith("feedback_") and isinstance(val, dict):
+                        feedback_rows.append({
+                            "timestamp": datetime.now().isoformat(),
+                            "movie_title": val["title"],
+                            "response": val["response"],
+                            "rating": val.get("rating")
+                        })
+                if feedback_rows:
+                    df = pd.DataFrame(feedback_rows)
+                    df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
+                    st.success("✅ Feedback saved!")
+
             for idx, (title, _) in enumerate(recs):
                 movie_obj = next((m for m in candidate_movies.values() if m.title == title), None)
-                if movie_obj:
-                    with cols[idx % 4]:
-                        display_movie_card(movie_obj, idx + 1)
+                if not movie_obj:
+                    continue
+
+                st.markdown(f"### {idx + 1}. {movie_obj.title}")
+                col1, col2, col3 = st.columns([1, 2, 1])
+
+                with col1:
+                    poster_url = f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else ""
+                    if poster_url:
+                        st.image(poster_url, width=150)
+                    else:
+                        st.text("No image available")
+
+                with col2:
+                    overview = getattr(movie_obj, 'overview', '') or "No description available."
+                    short_description = " ".join(overview.split()[:50]) + "..." if len(overview.split()) > 50 else overview
+                    st.write(short_description)
+
+                with col3:
+                    feedback_key = f"{movie_obj.id}_feedback"
+                    response = st.radio("Would you watch this?", ["Yes", "No", "Already watched"], key=feedback_key)
+
+                    rating = None
+                    if response == "Already watched":
+                        rating_key = f"{movie_obj.id}_rating"
+                        rating = st.text_input("Rate this movie out of 10", key=rating_key)
+
+                    st.session_state[f"feedback_{movie_obj.id}"] = {
+                        "title": movie_obj.title,
+                        "response": response,
+                        "rating": rating
+                    }
+
+                st.markdown("---")  # Separator between movie blocks
+
+            if st.button("📥 Submit Feedback"):
+                save_feedback_to_csv()
