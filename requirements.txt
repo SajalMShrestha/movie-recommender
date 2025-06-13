@@ -4,3 +4,5 @@ firebase-admin
 tmdbv3api
 nltk
 requests
+streamlit-autocomplete
+pandas
