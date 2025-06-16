@@ -37,6 +37,8 @@ def save_session(session_data):
 saved_state = load_session()
 if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = saved_state.get("favorite_movies", [])
+if "selected_movie" not in st.session_state:
+    st.session_state.selected_movie = None
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
@@ -194,36 +196,49 @@ def recommend_movies(favorite_titles):
 
 st.title("🎬 Movie AI Recommender")
 
-# --- Autocomplete Movie Search ---
+# --- Movie Search and Selection ---
 def search_movies(prefix):
+    if not prefix or len(prefix) < 2:  # Only search if at least 2 characters
+        return []
     time.sleep(0.3)
     try:
         results = movie.search(prefix)
-        titles = [f"{m.title} ({m.release_date[:4]})" if m.release_date else m.title for m in results[:5]]
-        return titles
+        # Return list of tuples with (display_text, movie_id)
+        return [(f"{m.title} ({m.release_date[:4]})" if m.release_date else m.title, m.id) for m in results[:5]]
     except:
         return []
 
-autocomplete = st_autocomplete(
-    search_function=search_movies,
-    placeholder="Type your favorite movie",
-    label="Search and add a movie",
-    debounce=0.3,
-    key="movie_autocomplete"
-)
+# Create a selectbox for movie search
+search_results = search_movies(st.text_input("Search for a movie (type at least 2 characters)", key="movie_search"))
+if search_results:
+    selected_option = st.selectbox(
+        "Select a movie from the results",
+        options=[result[0] for result in search_results],
+        key="movie_select"
+    )
+    
+    if selected_option and st.button("Add Movie"):
+        if len(st.session_state.favorite_movies) >= 5:
+            st.warning("You can only add up to 5 movies. Please remove some movies first.")
+        else:
+            clean_title = selected_option.split(" (", 1)[0]
+            if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+                st.session_state.favorite_movies.append(clean_title)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                st.experimental_rerun()
 
-if autocomplete:
-    clean_title = autocomplete.split(" (", 1)[0]
-    if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-        st.session_state.favorite_movies.append(clean_title)
-    st.session_state.movie_autocomplete = ""
-    save_session({"favorite_movies": st.session_state.favorite_movies})
-    st.experimental_rerun()
-
+# Display selected movies with remove option
 if st.session_state.favorite_movies:
-    st.subheader("🎥 Your Favorite Movies")
+    st.subheader("🎥 Your Selected Movies (5 max)")
     for i, title in enumerate(st.session_state.favorite_movies, 1):
-        st.markdown(f"{i}. {title}")
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown(f"{i}. {title}")
+        with col2:
+            if st.button("Remove", key=f"remove_{i}"):
+                st.session_state.favorite_movies.pop(i-1)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                st.experimental_rerun()
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
@@ -234,8 +249,8 @@ st.markdown("---")
 
 # --- Recommendation Button and Feedback UI ---
 if st.button("🎬 Get Recommendations"):
-    if len(st.session_state.favorite_movies) < 3:
-        st.warning("Please add at least 3 movies to get recommendations.")
+    if len(st.session_state.favorite_movies) != 5:
+        st.warning("Please select exactly 5 movies to get recommendations.")
     else:
         with st.spinner("Finding personalized movie recommendations..."):
             recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
