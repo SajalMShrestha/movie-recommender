@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_autocomplete import st_autocomplete
 from tmdbv3api import TMDb, Movie
 from datetime import datetime
 import concurrent.futures
@@ -208,24 +207,26 @@ def search_movies(prefix):
     except:
         return []
 
-# Create a selectbox for movie search
-search_results = search_movies(st.text_input("Search for a movie (type at least 2 characters)", key="movie_search"))
-if search_results:
-    selected_option = st.selectbox(
-        "Select a movie from the results",
-        options=[result[0] for result in search_results],
-        key="movie_select"
-    )
-    
-    if selected_option and st.button("Add Movie"):
-        if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies. Please remove some movies first.")
-        else:
-            clean_title = selected_option.split(" (", 1)[0]
-            if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-                st.session_state.favorite_movies.append(clean_title)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.experimental_rerun()
+# Create a search box and dropdown for movie selection
+search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+if search_query and len(search_query) >= 2:
+    search_results = search_movies(search_query)
+    if search_results:
+        selected_option = st.selectbox(
+            "Select a movie from the results",
+            options=[result[0] for result in search_results],
+            key="movie_select"
+        )
+        
+        if selected_option and st.button("Add Movie"):
+            if len(st.session_state.favorite_movies) >= 5:
+                st.warning("You can only add up to 5 movies. Please remove some movies first.")
+            else:
+                clean_title = selected_option.split(" (", 1)[0]
+                if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+                    st.session_state.favorite_movies.append(clean_title)
+                    save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.experimental_rerun()
 
 # Display selected movies with remove option
 if st.session_state.favorite_movies:
