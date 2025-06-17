@@ -279,7 +279,7 @@ if st.button("🎬 Get Recommendations"):
         def save_feedback_to_csv():
             feedback_rows = []
             for key, val in st.session_state.items():
-                if key.startswith("feedback_") and isinstance(val, dict):
+                if key.startswith("feedback_obj_") and isinstance(val, dict):
                     feedback_rows.append({
                         "timestamp": datetime.now().isoformat(),
                         "movie_title": val["title"],
@@ -316,11 +316,19 @@ if st.button("🎬 Get Recommendations"):
             with col3:
                 fb_key = f"feedback_{movie_obj.id}"
                 response = st.radio("Would you watch this?", ["Yes","No","Already watched"], key=fb_key)
+
+                rate_key = f"rating_{movie_obj.id}"
                 rating = None
                 if response == "Already watched":
-                    rate_key = f"rating_{movie_obj.id}"
                     rating = st.number_input("Rate this movie out of 10", min_value=1, max_value=10, key=rate_key)
-                st.session_state[fb_key] = {"title": movie_obj.title, "response": response, "rating": rating}
+
+                # Store feedback separately in memory (not session) to avoid widget conflict
+                feedback_entry = {
+                    "title": movie_obj.title,
+                    "response": response,
+                    "rating": rating
+                }
+                st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
             st.markdown("---")
 
         if st.button("📥 Submit Feedback"):
