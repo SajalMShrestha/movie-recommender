@@ -276,7 +276,7 @@ if st.button("❌ Clear All"):
 st.markdown("---")
 
 # --- Recommendation Button and Feedback UI ---
-if st.button("🎬 Get Recommendations"):
+if st.button("🎬 Get Recommendations") or st.session_state.recommendations is None:
     if len(st.session_state.favorite_movies) != 5:
         st.warning("Please select exactly 5 movies to get recommendations.")
     else:
