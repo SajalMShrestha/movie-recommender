@@ -200,6 +200,54 @@ def recommend_movies(favorite_titles):
 
 st.title("🎬 Movie AI Recommender")
 
+# Movie Search & Selection UI
+search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+search_results = []
+if search_query and len(search_query) >= 2:
+    try:
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+        response = requests.get(url, params=params)
+        data = response.json()
+        search_results = data.get("results", [])
+    except Exception as e:
+        st.error(f"Error searching for movies: {e}")
+
+if search_results:
+    selected_option = st.selectbox(
+        "Select a movie from the results",
+        options=[f"{m['title']} ({m['release_date'][:4]})" if m.get('release_date') else m['title'] for m in search_results],
+        key="movie_select"
+    )
+    if selected_option and st.button("Add Movie"):
+        if len(st.session_state.favorite_movies) >= 5:
+            st.warning("You can only add up to 5 movies. Please remove some movies first.")
+        else:
+            clean_title = selected_option.split(" (", 1)[0]
+            if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+                st.session_state.favorite_movies.append(clean_title)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                st.experimental_rerun()
+
+# Display selected movies
+if st.session_state.favorite_movies:
+    st.subheader("🎥 Your Selected Movies (5 max)")
+    for i, title in enumerate(st.session_state.favorite_movies, 1):
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown(f"{i}. {title}")
+        with col2:
+            if st.button("Remove", key=f"remove_{i}"):
+                st.session_state.favorite_movies.pop(i-1)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                st.experimental_rerun()
+
+if st.button("❌ Clear All"):
+    st.session_state.favorite_movies = []
+    save_session({"favorite_movies": []})
+    st.experimental_rerun()
+
+# Recommendation trigger
 if st.button("🎬 Get Recommendations"):
     if len(st.session_state.favorite_movies) != 5:
         st.warning("Please select exactly 5 movies to get recommendations.")
@@ -210,6 +258,7 @@ if st.button("🎬 Get Recommendations"):
             st.session_state.candidates = candidate_movies
             st.session_state.recommend_triggered = True
 
+# Display recommendations and feedback
 if st.session_state.recommend_triggered and st.session_state.recommendations:
     st.subheader("🎯 Your Top 10 Movie Recommendations")
 
