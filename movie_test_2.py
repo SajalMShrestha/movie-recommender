@@ -15,7 +15,7 @@ nltk.download('vader_lexicon')
 # TMDb setup
 tmdb = TMDb()
 tmdb.api_key = st.secrets["TMDB_API_KEY"]
-st.write("TMDB API Key loaded:", tmdb.api_key)  # Debug print
+# st.write("TMDB API Key loaded:", tmdb.api_key)  # Debug print
 
 tmdb.language = 'en'
 tmdb.debug = True
@@ -44,6 +44,8 @@ if "recommendations" not in st.session_state:
     st.session_state.recommendations = None
 if "candidates" not in st.session_state:
     st.session_state.candidates = None
+if "recommend_triggered" not in st.session_state:
+    st.session_state.recommend_triggered = False
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
@@ -127,7 +129,6 @@ def recommend_movies(favorite_titles):
     favorite_genres, favorite_actors = set(), set()
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
 
-    # Gather user preferences
     for title in favorite_titles:
         search_result = movie.search(title)
         if not search_result:
@@ -140,7 +141,6 @@ def recommend_movies(favorite_titles):
         plot_moods.add(infer_mood_from_plot(details.overview or ""))
         if details.release_date:
             favorite_years.append(int(details.release_date[:4]))
-        # Similar movies
         try:
             similar_list = movie.similar(details.id)
             if similar_list:
@@ -154,7 +154,6 @@ def recommend_movies(favorite_titles):
         "estimated_age": estimate_user_age(favorite_years)
     }
 
-    # Fetch details in parallel
     candidate_movies = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
@@ -163,14 +162,12 @@ def recommend_movies(favorite_titles):
             if m and getattr(m,'vote_count',0)>=20:
                 candidate_movies[mid] = m
 
-    # Scoring function
     def compute_score(m):
         score = 0.0
         genres = {g['name'] for g in m.genres}
         score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres)/max(len(favorite_genres),1))
         cast_dir = set(a.name for a in m.cast) | set(getattr(m,'directors',[]))
         score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors)/max(len(favorite_actors),1))
-        # Year recency
         try:
             year_diff = datetime.now().year - int(m.release_date[:4])
             if year_diff<=2: score += recommendation_weights['release_year']
@@ -181,7 +178,6 @@ def recommend_movies(favorite_titles):
         score += recommendation_weights['mood_tone'] * get_mood_score(m.genres, user_prefs['preferred_moods'])
         score += recommendation_weights['trending_factor'] * 0.5
         score -= get_maturity_penalty(m.genres)
-        # Age alignment
         try:
             release_year=int(m.release_date[:4])
             user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
@@ -190,7 +186,6 @@ def recommend_movies(favorite_titles):
         except: pass
         return max(score,0)
 
-    # Score and select top 10
     scored = [(m, compute_score(m) + min(m.vote_count,1000)/20000) for m in candidate_movies.values()]
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
@@ -205,78 +200,7 @@ def recommend_movies(favorite_titles):
 
 st.title("🎬 Movie AI Recommender")
 
-# --- Movie Search and Selection ---
-def search_movies(prefix):
-    if not prefix or len(prefix) < 2:
-        return []
-    time.sleep(0.3)
-    try:
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {
-            "api_key": st.secrets["TMDB_API_KEY"],
-            "query": prefix
-        }
-        response = requests.get(url, params=params)
-        data = response.json()
-        results = data.get("results", [])
-        # Return list of tuples with (display_text, movie_id)
-        return [
-            (f"{m['title']} ({m['release_date'][:4]})" if m.get('release_date') else m['title'], m['id'])
-            for m in results[:5]
-        ]
-    except Exception as e:
-        st.error(f"Error searching for movies: {e}")
-        return []
-
-# Create a search box and dropdown for movie selection
-search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
-search_results = []
-if search_query and len(search_query) >= 2:
-    try:
-        search_results = search_movies(search_query)
-        if not search_results:
-            st.info("No results found. Try a different movie name.")
-    except Exception as e:
-        st.error(f"Error searching for movies: {e}")
-
-if search_results:
-    selected_option = st.selectbox(
-        "Select a movie from the results",
-        options=[result[0] for result in search_results],
-        key="movie_select"
-    )
-    if selected_option and st.button("Add Movie"):
-        if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies. Please remove some movies first.")
-        else:
-            clean_title = selected_option.split(" (", 1)[0]
-            if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-                st.session_state.favorite_movies.append(clean_title)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.experimental_rerun()
-
-# Display selected movies with remove option
-if st.session_state.favorite_movies:
-    st.subheader("🎥 Your Selected Movies (5 max)")
-    for i, title in enumerate(st.session_state.favorite_movies, 1):
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown(f"{i}. {title}")
-        with col2:
-            if st.button("Remove", key=f"remove_{i}"):
-                st.session_state.favorite_movies.pop(i-1)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.experimental_rerun()
-
-if st.button("❌ Clear All"):
-    st.session_state.favorite_movies = []
-    save_session({"favorite_movies": []})
-    st.experimental_rerun()
-
-st.markdown("---")
-
-# --- Recommendation Button and Feedback UI ---
-if st.button("🎬 Get Recommendations") or st.session_state.recommendations is None:
+if st.button("🎬 Get Recommendations"):
     if len(st.session_state.favorite_movies) != 5:
         st.warning("Please select exactly 5 movies to get recommendations.")
     else:
@@ -284,68 +208,65 @@ if st.button("🎬 Get Recommendations") or st.session_state.recommendations is 
             recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
             st.session_state.recommendations = recs
             st.session_state.candidates = candidate_movies
-        st.subheader("🎯 Your Top 10 Movie Recommendations")
+            st.session_state.recommend_triggered = True
 
-        def save_feedback_to_csv():
-            feedback_rows = []
-            for key, val in st.session_state.items():
-                if key.startswith("feedback_obj_") and isinstance(val, dict):
-                    feedback_rows.append({
-                        "timestamp": datetime.now().isoformat(),
-                        "movie_title": val["title"],
-                        "response": val["response"],
-                        "rating": val.get("rating")
-                    })
-            if feedback_rows:
-                df = pd.DataFrame(feedback_rows)
-                df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
-                st.success("✅ Feedback saved!")
+if st.session_state.recommend_triggered and st.session_state.recommendations:
+    st.subheader("🎯 Your Top 10 Movie Recommendations")
 
-        for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
-            movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
-            if not movie_obj:
-                continue
-            st.markdown(f"### {idx}. {movie_obj.title}")
-            col1, col2, col3 = st.columns([1, 2, 1])
+    def save_feedback_to_csv():
+        feedback_rows = []
+        for key, val in st.session_state.items():
+            if key.startswith("feedback_obj_") and isinstance(val, dict):
+                feedback_rows.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "movie_title": val["title"],
+                    "response": val["response"],
+                    "rating": val.get("rating")
+                })
+        if feedback_rows:
+            df = pd.DataFrame(feedback_rows)
+            df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
+            st.success("✅ Feedback saved!")
 
-            # Poster
-            with col1:
-                poster_url = f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else None
-                if poster_url:
-                    st.image(poster_url, width=150)
-                else:
-                    st.text("No image available")
+    for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
+        movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
+        if not movie_obj:
+            continue
+        st.markdown(f"### {idx}. {movie_obj.title}")
+        col1, col2, col3 = st.columns([1, 2, 1])
 
-            # Description
-            with col2:
-                overview = movie_obj.overview or "No description available."
-                short_desc = " ".join(overview.split()[:50]) + ("..." if len(overview.split())>50 else "")
-                st.write(short_desc)
+        with col1:
+            poster_url = f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else None
+            if poster_url:
+                st.image(poster_url, width=150)
+            else:
+                st.text("No image available")
 
-            # Feedback
-            with col3:
-                fb_key = f"feedback_{movie_obj.id}"
-                response = st.radio("Would you watch this?", ["Yes","No","Already watched"], key=fb_key)
+        with col2:
+            overview = movie_obj.overview or "No description available."
+            short_desc = " ".join(overview.split()[:50]) + ("..." if len(overview.split())>50 else "")
+            st.write(short_desc)
 
-                rate_key = f"rating_{movie_obj.id}"
-                rating = None
-                if response == "Already watched":
-                    rating = st.number_input("Rate this movie out of 10", min_value=1, max_value=10, key=rate_key)
+        with col3:
+            fb_key = f"feedback_{movie_obj.id}"
+            response = st.radio("Would you watch this?", ["Yes","No","Already watched"], key=fb_key)
 
-                # Store feedback separately in memory (not session) to avoid widget conflict
-                feedback_entry = {
-                    "title": movie_obj.title,
-                    "response": response,
-                    "rating": rating
-                }
-                st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
-            st.markdown("---")
+            rate_key = f"rating_{movie_obj.id}"
+            rating = None
+            if response == "Already watched":
+                rating = st.number_input("Rate this movie out of 10", min_value=1, max_value=10, key=rate_key)
 
-        if st.button("📥 Submit Feedback"):
-            save_feedback_to_csv()
-            # Persist session state including favorites and feedback
-            save_session({
-                "favorite_movies": st.session_state.favorite_movies,
-                # Optionally store feedback entries
-                "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
-            })
+            feedback_entry = {
+                "title": movie_obj.title,
+                "response": response,
+                "rating": rating
+            }
+            st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
+        st.markdown("---")
+
+    if st.button("📥 Submit Feedback"):
+        save_feedback_to_csv()
+        save_session({
+            "favorite_movies": st.session_state.favorite_movies,
+            "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
+        })
