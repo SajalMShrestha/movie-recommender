@@ -40,6 +40,10 @@ if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = saved_state.get("favorite_movies", [])
 if "selected_movie" not in st.session_state:
     st.session_state.selected_movie = None
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = None
+if "candidates" not in st.session_state:
+    st.session_state.candidates = None
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
@@ -274,6 +278,8 @@ if st.button("🎬 Get Recommendations"):
     else:
         with st.spinner("Finding personalized movie recommendations..."):
             recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
+            st.session_state.recommendations = recs
+            st.session_state.candidates = candidate_movies
         st.subheader("🎯 Your Top 10 Movie Recommendations")
 
         def save_feedback_to_csv():
@@ -291,8 +297,8 @@ if st.button("🎬 Get Recommendations"):
                 df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
                 st.success("✅ Feedback saved!")
 
-        for idx, (title, _) in enumerate(recs, 1):
-            movie_obj = next((m for m in candidate_movies.values() if m.title == title), None)
+        for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
+            movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
             if not movie_obj:
                 continue
             st.markdown(f"### {idx}. {movie_obj.title}")
