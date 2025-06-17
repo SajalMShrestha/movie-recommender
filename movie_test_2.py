@@ -298,10 +298,12 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
 
         with col3:
             fb_key = f"feedback_{movie_obj.id}"
-            response = st.radio("Would you watch this?", ["Yes","No","Already watched"], key=fb_key, index=None)
+            response = st.radio("Would you watch this?", ["Yes", "No", "Already watched"], key=fb_key, index=None)
 
+            liked = None
             liked_key = f"liked_{movie_obj.id}"
-            liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
+            if response == "Already watched":
+                liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
 
             feedback_entry = {
                 "title": movie_obj.title,
