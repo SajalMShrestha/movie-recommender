@@ -260,7 +260,7 @@ if st.button("🎬 Get Recommendations"):
 
 # Display recommendations and feedback
 if st.session_state.recommend_triggered and st.session_state.recommendations:
-    st.subheader("🎯 Your Top 10 Movie Recommendations")
+    st.subheader("🌟 Your Top 10 Movie Recommendations")
 
     def save_feedback_to_csv():
         feedback_rows = []
@@ -270,7 +270,7 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
                     "timestamp": datetime.now().isoformat(),
                     "movie_title": val["title"],
                     "response": val["response"],
-                    "rating": val.get("rating")
+                    "liked": val.get("liked")
                 })
         if feedback_rows:
             df = pd.DataFrame(feedback_rows)
@@ -300,20 +300,20 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
             fb_key = f"feedback_{movie_obj.id}"
             response = st.radio("Would you watch this?", ["Yes","No","Already watched"], key=fb_key)
 
-            rate_key = f"rating_{movie_obj.id}"
-            rating = None
+            liked_key = f"liked_{movie_obj.id}"
+            liked = None
             if response == "Already watched":
-                rating = st.number_input("Rate this movie out of 10", min_value=1, max_value=10, key=rate_key)
+                liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key)
 
             feedback_entry = {
                 "title": movie_obj.title,
                 "response": response,
-                "rating": rating
+                "liked": liked
             }
             st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
         st.markdown("---")
 
-    if st.button("📥 Submit Feedback"):
+    if st.button("📅 Submit Feedback"):
         save_feedback_to_csv()
         save_session({
             "favorite_movies": st.session_state.favorite_movies,
