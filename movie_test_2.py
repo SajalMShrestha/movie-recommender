@@ -15,6 +15,8 @@ nltk.download('vader_lexicon')
 # TMDb setup
 tmdb = TMDb()
 tmdb.api_key = st.secrets["TMDB_API_KEY"]
+st.write("TMDB API Key loaded:", tmdb.api_key)  # Debug print
+
 tmdb.language = 'en'
 tmdb.debug = True
 movie = Movie()
@@ -197,36 +199,53 @@ st.title("🎬 Movie AI Recommender")
 
 # --- Movie Search and Selection ---
 def search_movies(prefix):
-    if not prefix or len(prefix) < 2:  # Only search if at least 2 characters
+    if not prefix or len(prefix) < 2:
         return []
     time.sleep(0.3)
     try:
-        results = movie.search(prefix)
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {
+            "api_key": st.secrets["TMDB_API_KEY"],
+            "query": prefix
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+        results = data.get("results", [])
         # Return list of tuples with (display_text, movie_id)
-        return [(f"{m.title} ({m.release_date[:4]})" if m.release_date else m.title, m.id) for m in results[:5]]
-    except:
+        return [
+            (f"{m['title']} ({m['release_date'][:4]})" if m.get('release_date') else m['title'], m['id'])
+            for m in results[:5]
+        ]
+    except Exception as e:
+        st.error(f"Error searching for movies: {e}")
         return []
 
 # Create a search box and dropdown for movie selection
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+search_results = []
 if search_query and len(search_query) >= 2:
-    search_results = search_movies(search_query)
-    if search_results:
-        selected_option = st.selectbox(
-            "Select a movie from the results",
-            options=[result[0] for result in search_results],
-            key="movie_select"
-        )
-        
-        if selected_option and st.button("Add Movie"):
-            if len(st.session_state.favorite_movies) >= 5:
-                st.warning("You can only add up to 5 movies. Please remove some movies first.")
-            else:
-                clean_title = selected_option.split(" (", 1)[0]
-                if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-                    st.session_state.favorite_movies.append(clean_title)
-                    save_session({"favorite_movies": st.session_state.favorite_movies})
-                    st.experimental_rerun()
+    try:
+        search_results = search_movies(search_query)
+        if not search_results:
+            st.info("No results found. Try a different movie name.")
+    except Exception as e:
+        st.error(f"Error searching for movies: {e}")
+
+if search_results:
+    selected_option = st.selectbox(
+        "Select a movie from the results",
+        options=[result[0] for result in search_results],
+        key="movie_select"
+    )
+    if selected_option and st.button("Add Movie"):
+        if len(st.session_state.favorite_movies) >= 5:
+            st.warning("You can only add up to 5 movies. Please remove some movies first.")
+        else:
+            clean_title = selected_option.split(" (", 1)[0]
+            if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+                st.session_state.favorite_movies.append(clean_title)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                st.experimental_rerun()
 
 # Display selected movies with remove option
 if st.session_state.favorite_movies:
