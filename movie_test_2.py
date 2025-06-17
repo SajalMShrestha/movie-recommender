@@ -141,8 +141,12 @@ def recommend_movies(favorite_titles):
         if details.release_date:
             favorite_years.append(int(details.release_date[:4]))
         # Similar movies
-        similar_list = movie.similar(details.id)
-        candidate_movie_ids.update([m.id for m in similar_list])
+        try:
+            similar_list = movie.similar(details.id)
+            if similar_list:
+                candidate_movie_ids.update([m.id for m in similar_list if hasattr(m, 'id')])
+        except:
+            continue
 
     user_prefs = {
         "subscribed_platforms": [k for k,v in streaming_platform_priority.items() if v>0],
