@@ -221,18 +221,18 @@ if search_results:
     )
     if selected_label:
         selected_movie = next((m for m in search_results if m.get("label") == selected_label), None)
-        if selected_movie and selected_movie.get("poster_path"):
-            st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
-
-        if st.button("Add Movie"):
-            if selected_movie:
-                clean_title = selected_label.split(" (", 1)[0]
-                if len(st.session_state.favorite_movies) >= 5:
-                    st.warning("You can only add up to 5 movies. Please remove some movies first.")
-                elif clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-                    st.session_state.favorite_movies.append(clean_title)
-                    save_session({"favorite_movies": st.session_state.favorite_movies})
-                    st.experimental_rerun()
+        if selected_movie:
+            clean_title = selected_label.split(" (", 1)[0]
+            if len(st.session_state.favorite_movies) >= 5:
+                st.warning("You can only add up to 5 movies. Please remove some movies first.")
+            elif clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+                st.session_state.favorite_movies.append(clean_title)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                if selected_movie['poster_path']:
+                    st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
+                else:
+                    st.text("No image available")
+                st.experimental_rerun()
 
 # Display selected movies
 if st.session_state.favorite_movies:
