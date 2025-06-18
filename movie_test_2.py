@@ -279,7 +279,8 @@ if st.button("🎬 Get Recommendations"):
         st.warning("Please select exactly 5 movies to get recommendations.")
     else:
         with st.spinner("Finding personalized movie recommendations..."):
-            recs, candidate_movies = recommend_movies(st.session_state.favorite_movies)
+            favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+            recs, candidate_movies = recommend_movies(favorite_titles)
             st.session_state.recommendations = recs
             st.session_state.candidates = candidate_movies
             st.session_state.recommend_triggered = True
