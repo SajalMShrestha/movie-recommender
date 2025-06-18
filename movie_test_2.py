@@ -48,6 +48,8 @@ if "recommend_triggered" not in st.session_state:
     st.session_state.recommend_triggered = False
 if "favorite_movie_posters" not in st.session_state:
     st.session_state.favorite_movie_posters = {}
+if "movie_search" not in st.session_state:
+    st.session_state.movie_search = ""
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
@@ -203,7 +205,7 @@ def recommend_movies(favorite_titles):
 st.title("🎬 Movie AI Recommender")
 
 # Movie Search & Selection UI
-search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+search_query = st.text_input("Search for a movie (type at least 2 characters)", value=st.session_state.movie_search, key="movie_search")
 search_results = []
 if search_query and len(search_query) >= 2:
     try:
