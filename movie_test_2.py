@@ -211,10 +211,10 @@ st.title("🎬 Movie AI Recommender")
 # Movie Search & Selection UI
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
 search_results = []
-if search_query and len(search_query) >= 2:
+if st.session_state.movie_search and len(st.session_state.movie_search) >= 2:
     try:
         url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": st.session_state.movie_search}
         response = requests.get(url, params=params)
         data = response.json()
         results = data.get("results", [])
