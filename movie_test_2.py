@@ -224,17 +224,16 @@ if search_results:
     if selected_movie and st.button("Add Movie"):
         clean_title = selected_label.split(" (", 1)[0]
         if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies. Please remove some movies first.")
+            st.warning("You can only add up to 5 movies.")
         elif clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
             st.session_state.favorite_movies.append(clean_title)
             save_session({"favorite_movies": st.session_state.favorite_movies})
+            # ✅ Show the poster *after* Add Movie is clicked
+            if selected_movie['poster_path']:
+                st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
+            else:
+                st.text("No image available")
             st.experimental_rerun()
-
-        # Show the movie poster after clicking "Add Movie"
-        if selected_movie['poster_path']:
-            st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
-        else:
-            st.text("No image available")
 
 # Display selected movies
 if st.session_state.favorite_movies:
@@ -320,7 +319,7 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
             st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
         st.markdown("---")
 
-    if st.button("�� Submit Feedback"):
+    if st.button("Submit Feedback"):
         save_feedback_to_csv()
         save_session({
             "favorite_movies": st.session_state.favorite_movies,
