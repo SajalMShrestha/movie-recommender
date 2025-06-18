@@ -46,6 +46,8 @@ if "candidates" not in st.session_state:
     st.session_state.candidates = None
 if "recommend_triggered" not in st.session_state:
     st.session_state.recommend_triggered = False
+if "favorite_movie_posters" not in st.session_state:
+    st.session_state.favorite_movie_posters = {}
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
