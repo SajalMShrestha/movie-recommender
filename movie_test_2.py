@@ -209,14 +209,23 @@ if search_query and len(search_query) >= 2:
         params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
         response = requests.get(url, params=params)
         data = response.json()
-        search_results = data.get("results", [])
+        results = data.get("results", [])
+        search_results = [
+            {
+                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
+                "id": m.get("id"),
+                "poster_path": m.get("poster_path")
+            }
+            for m in results[:5]
+            if m.get("title") and m.get("id")
+        ]
     except Exception as e:
         st.error(f"Error searching for movies: {e}")
 
 if search_results:
     selected_label = st.selectbox(
         "Select a movie from the results",
-        options=[item["label"] for item in search_results],
+        options=[item["label"] for item in search_results if "label" in item],
         key="movie_select"
     )
     selected_movie = next((m for m in search_results if m["label"] == selected_label), None)
