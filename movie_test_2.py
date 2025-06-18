@@ -234,9 +234,10 @@ if search_results:
 
     if selected_movie and st.button("Add Movie"):
         clean_title = selected_label.split(" (", 1)[0]
+        existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
         if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies.")
-        elif clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+            st.warning("You can only add up to 5 movies. Please remove some movies first.")
+        elif clean_title not in existing_titles:
             st.session_state.favorite_movies.append({
                 "title": clean_title,
                 "year": selected_label.split("(", 1)[1].replace(")", "") if "(" in selected_label else "",
