@@ -237,7 +237,11 @@ if search_results:
         if len(st.session_state.favorite_movies) >= 5:
             st.warning("You can only add up to 5 movies.")
         elif clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-            st.session_state.favorite_movies.append(clean_title)
+            st.session_state.favorite_movies.append({
+                "title": clean_title,
+                "year": selected_label.split("(", 1)[1].replace(")", "") if "(" in selected_label else "",
+                "poster_path": selected_movie.get("poster_path")
+            })
             save_session({"favorite_movies": st.session_state.favorite_movies})
             # ✅ Show the poster *after* Add Movie is clicked
             if selected_movie['poster_path']:
@@ -249,14 +253,17 @@ if search_results:
 # --- Display Favorite Movies with Posters ---
 if st.session_state.favorite_movies:
     st.subheader("🎥 Your Selected Movies (5 max)")
-    for i, title in enumerate(st.session_state.favorite_movies, 1):
+    for i, movie in enumerate(st.session_state.favorite_movies, 1):
+        title = movie["title"]
+        year = movie["year"]
+        poster = movie["poster_path"]
         col1, col2, col3 = st.columns([1, 6, 1])
         with col1:
             poster = st.session_state.favorite_movie_posters.get(title)
             if poster:
                 st.image(f"https://image.tmdb.org/t/p/w92{poster}", width=60)
         with col2:
-            st.markdown(f"{i}. {title}")
+            st.markdown(f"{i}. {title} ({year})")
         with col3:
             if st.button("Remove", key=f"remove_{i}"):
                 st.session_state.favorite_movies.pop(i-1)
