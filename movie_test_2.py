@@ -227,6 +227,7 @@ if search_query and len(search_query) >= 2:
             for m in results[:5]
             if m.get("title") and m.get("id")
         ]
+        st.session_state.movie_search = ""  # ✅ Clear the search bar only after results are fetched
     except Exception as e:
         st.error(f"Error searching for movies: {e}")
 
