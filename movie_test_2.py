@@ -19,7 +19,7 @@ tmdb.api_key = st.secrets["TMDB_API_KEY"]
 
 tmdb.language = 'en'
 tmdb.debug = True
-movie = Movie()
+movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
 
 # Session persistence via file storage
@@ -115,8 +115,8 @@ def fetch_similar_movie_details(m_id):
     if m_id in cache:
         return m_id, cache[m_id]
     try:
-        m_details = movie.details(m_id)
-        m_credits = movie.credits(m_id)
+        m_details = movie_api.details(m_id)
+        m_credits = movie_api.credits(m_id)
         m_details.genres = m_details.genres
         m_details.cast = list(m_credits['cast'])[:3]
         m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
@@ -132,11 +132,11 @@ def recommend_movies(favorite_titles):
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
 
     for title in favorite_titles:
-        search_result = movie.search(title)
+        search_result = movie_api.search(title)
         if not search_result:
             continue
-        details = movie.details(search_result[0].id)
-        credits = movie.credits(search_result[0].id)
+        details = movie_api.details(search_result[0].id)
+        credits = movie_api.credits(search_result[0].id)
         favorite_genres.update([g['name'] for g in details.genres])
         favorite_actors.update([c['name'] for c in list(credits['cast'])[:3]])
         favorite_actors.update([d['name'] for d in credits['crew'] if d['job']=='Director'])
@@ -144,7 +144,7 @@ def recommend_movies(favorite_titles):
         if details.release_date:
             favorite_years.append(int(details.release_date[:4]))
         try:
-            similar_list = movie.similar(details.id)
+            similar_list = movie_api.similar(details.id)
             if similar_list:
                 candidate_movie_ids.update([m.id for m in similar_list if hasattr(m, 'id')])
         except:
