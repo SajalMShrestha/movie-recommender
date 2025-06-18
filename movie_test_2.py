@@ -250,24 +250,20 @@ if search_results:
                 st.text("No image available")
             st.experimental_rerun()
 
-# --- Display Favorite Movies with Posters ---
+# --- Display Favorite Movies with Posters in a Grid ---
 if st.session_state.favorite_movies:
     st.subheader("🎥 Your Selected Movies (5 max)")
-    for i, movie in enumerate(st.session_state.favorite_movies, 1):
+    cols = st.columns(5)
+    for i, movie in enumerate(st.session_state.favorite_movies):
         title = movie["title"]
         year = movie["year"]
-        poster = movie["poster_path"]
-        col1, col2, col3 = st.columns([1, 6, 1])
-        with col1:
-            poster = st.session_state.favorite_movie_posters.get(title)
+        poster = movie.get("poster_path")
+        with cols[i % 5]:
             if poster:
-                st.image(f"https://image.tmdb.org/t/p/w92{poster}", width=60)
-        with col2:
-            st.markdown(f"{i}. {title} ({year})")
-        with col3:
+                st.image(f"https://image.tmdb.org/t/p/w200{poster}", use_column_width=True)
+            st.markdown(f"**{title} ({year})**")
             if st.button("Remove", key=f"remove_{i}"):
-                st.session_state.favorite_movies.pop(i-1)
-                st.session_state.favorite_movie_posters.pop(title, None)
+                st.session_state.favorite_movies.pop(i)
                 save_session({"favorite_movies": st.session_state.favorite_movies})
                 st.experimental_rerun()
 
