@@ -246,11 +246,7 @@ if search_results:
                 "poster_path": selected_movie.get("poster_path")
             })
             save_session({"favorite_movies": st.session_state.favorite_movies})
-            # ✅ Show the poster *after* Add Movie is clicked
-            if selected_movie['poster_path']:
-                st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
-            else:
-                st.text("No image available")
+            st.session_state.movie_search = ""  # Reset search bar
             st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
