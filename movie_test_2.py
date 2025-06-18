@@ -273,17 +273,20 @@ if st.button("❌ Clear All"):
     save_session({"favorite_movies": []})
     st.experimental_rerun()
 
-# Recommendation trigger
+# --- Get Recommendations ---
 if st.button("🎬 Get Recommendations"):
     if len(st.session_state.favorite_movies) != 5:
         st.warning("Please select exactly 5 movies to get recommendations.")
     else:
         with st.spinner("Finding personalized movie recommendations..."):
             favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-            recs, candidate_movies = recommend_movies(favorite_titles)
-            st.session_state.recommendations = recs
-            st.session_state.candidates = candidate_movies
-            st.session_state.recommend_triggered = True
+            try:
+                recs, candidate_movies = recommend_movies(favorite_titles)
+                st.session_state.recommendations = recs
+                st.session_state.candidates = candidate_movies
+                st.session_state.recommend_triggered = True
+            except Exception as e:
+                st.error(f"❌ Failed to generate recommendations: {e}")
 
 # Display recommendations and feedback
 if st.session_state.recommend_triggered and st.session_state.recommendations:
