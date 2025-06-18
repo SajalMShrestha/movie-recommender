@@ -220,9 +220,10 @@ if search_results:
         key="movie_select"
     )
     if selected_label:
-        selected_movie = next((m for m in search_results if m["label"] == selected_label), None)
-        if selected_movie and selected_movie['poster_path']:
+        selected_movie = next((m for m in search_results if m.get("label") == selected_label), None)
+        if selected_movie and selected_movie.get("poster_path"):
             st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
+
         if st.button("Add Movie"):
             if selected_movie:
                 clean_title = selected_label.split(" (", 1)[0]
