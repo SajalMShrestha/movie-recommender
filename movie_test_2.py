@@ -244,16 +244,21 @@ if search_results:
                 st.text("No image available")
             st.experimental_rerun()
 
-# Display selected movies
+# --- Display Favorite Movies with Posters ---
 if st.session_state.favorite_movies:
     st.subheader("🎥 Your Selected Movies (5 max)")
     for i, title in enumerate(st.session_state.favorite_movies, 1):
-        col1, col2 = st.columns([4, 1])
+        col1, col2, col3 = st.columns([1, 6, 1])
         with col1:
-            st.markdown(f"{i}. {title}")
+            poster = st.session_state.favorite_movie_posters.get(title)
+            if poster:
+                st.image(f"https://image.tmdb.org/t/p/w92{poster}", width=60)
         with col2:
+            st.markdown(f"{i}. {title}")
+        with col3:
             if st.button("Remove", key=f"remove_{i}"):
                 st.session_state.favorite_movies.pop(i-1)
+                st.session_state.favorite_movie_posters.pop(title, None)
                 save_session({"favorite_movies": st.session_state.favorite_movies})
                 st.experimental_rerun()
 
