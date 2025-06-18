@@ -51,7 +51,7 @@ if "favorite_movie_posters" not in st.session_state:
 if "movie_search" not in st.session_state:
     st.session_state.movie_search = ""
 elif st.session_state.movie_search == "__reset__":
-    del st.session_state["movie_search"]  # Reset search bar by deleting the key
+    st.session_state.movie_search = ""  # Reset search bar by setting it to an empty string
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
