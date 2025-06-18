@@ -53,6 +53,8 @@ if "movie_search" not in st.session_state:
 elif st.session_state.movie_search == "__reset__":
     st.session_state.movie_search = ""  # Reset search bar by setting it to an empty string
 
+st.session_state["movie_search"] = ""
+
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
     "genre_similarity": 0.20,
