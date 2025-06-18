@@ -48,12 +48,6 @@ if "recommend_triggered" not in st.session_state:
     st.session_state.recommend_triggered = False
 if "favorite_movie_posters" not in st.session_state:
     st.session_state.favorite_movie_posters = {}
-if "movie_search" not in st.session_state:
-    st.session_state.movie_search = ""
-elif st.session_state.movie_search == "__reset__":
-    st.session_state.movie_search = ""  # Reset search bar by setting it to an empty string
-
-st.session_state["movie_search"] = ""
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
@@ -211,10 +205,10 @@ st.title("🎬 Movie AI Recommender")
 # Movie Search & Selection UI
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
 search_results = []
-if st.session_state.movie_search and len(st.session_state.movie_search) >= 2:
+if search_query and len(search_query) >= 2:
     try:
         url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": st.session_state.movie_search}
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
         response = requests.get(url, params=params)
         data = response.json()
         results = data.get("results", [])
@@ -227,7 +221,6 @@ if st.session_state.movie_search and len(st.session_state.movie_search) >= 2:
             for m in results[:5]
             if m.get("title") and m.get("id")
         ]
-        st.session_state.movie_search = ""  # ✅ Reset search bar after adding movie
     except Exception as e:
         st.error(f"Error searching for movies: {e}")
 
@@ -251,7 +244,11 @@ if search_results:
                 "poster_path": selected_movie.get("poster_path")
             })
             save_session({"favorite_movies": st.session_state.favorite_movies})
-            st.session_state.movie_search = "__reset__"
+            # ✅ Show the poster *after* Add Movie is clicked
+            if selected_movie['poster_path']:
+                st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
+            else:
+                st.text("No image available")
             st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
