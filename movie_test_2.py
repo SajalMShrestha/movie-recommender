@@ -214,20 +214,24 @@ if search_query and len(search_query) >= 2:
         st.error(f"Error searching for movies: {e}")
 
 if search_results:
-    selected_option = st.selectbox(
+    selected_label = st.selectbox(
         "Select a movie from the results",
         options=[f"{m['title']} ({m['release_date'][:4]})" if m.get('release_date') else m['title'] for m in search_results],
         key="movie_select"
     )
-    if selected_option and st.button("Add Movie"):
-        if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies. Please remove some movies first.")
-        else:
-            clean_title = selected_option.split(" (", 1)[0]
-            if clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
-                st.session_state.favorite_movies.append(clean_title)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.experimental_rerun()
+    if selected_label:
+        selected_movie = next((m for m in search_results if m["label"] == selected_label), None)
+        if selected_movie and selected_movie['poster_path']:
+            st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
+        if st.button("Add Movie"):
+            if selected_movie:
+                clean_title = selected_label.split(" (", 1)[0]
+                if len(st.session_state.favorite_movies) >= 5:
+                    st.warning("You can only add up to 5 movies. Please remove some movies first.")
+                elif clean_title not in [title.split(" (", 1)[0] for title in st.session_state.favorite_movies]:
+                    st.session_state.favorite_movies.append(clean_title)
+                    save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.experimental_rerun()
 
 # Display selected movies
 if st.session_state.favorite_movies:
