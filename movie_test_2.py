@@ -132,7 +132,7 @@ def recommend_movies(favorite_titles):
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
 
     for title in favorite_titles:
-        search_result = movie.search(title)
+        search_result = movie_api.search(title)
         if not search_result:
             continue
         details = movie.details(search_result[0].id)
