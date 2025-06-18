@@ -50,6 +50,8 @@ if "favorite_movie_posters" not in st.session_state:
     st.session_state.favorite_movie_posters = {}
 if "movie_search" not in st.session_state:
     st.session_state.movie_search = ""
+elif st.session_state.movie_search == "__reset__":
+    st.session_state.movie_search = ""
 
 # --- Recommendation weights and platform priorities ---
 recommendation_weights = {
@@ -246,7 +248,7 @@ if search_results:
                 "poster_path": selected_movie.get("poster_path")
             })
             save_session({"favorite_movies": st.session_state.favorite_movies})
-            st.session_state.movie_search = ""  # Reset search bar
+            st.session_state.movie_search = "__reset__"
             st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
