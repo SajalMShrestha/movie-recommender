@@ -55,9 +55,8 @@ recommendation_weights = {
     "cast_crew": 0.25,
     "release_year": 0.15,
     "ratings": 0.20,
-    "streaming_availability": 0.10,
     "mood_tone": 0.05,
-    "trending_factor": 0.05,
+    "trending_factor": 0.15,
     "age_alignment": 0.05
 }
 
