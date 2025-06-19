@@ -22,6 +22,20 @@ tmdb.debug = True
 movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
 
+# Fetch and normalize trending popularity scores
+def get_trending_popularity(api_key):
+    try:
+        url = f"https://api.themoviedb.org/3/trending/movie/week?api_key={api_key}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json().get("results", [])
+            if not data:
+                return {}
+            max_pop = max([m.get("popularity", 1) for m in data])
+            return {m["id"]: m.get("popularity", 0) / max_pop for m in data}
+    except:
+        return {}
+
 # Session persistence via file storage
 SESSION_FILE = "session_state.json"
 def load_session():
@@ -165,6 +179,9 @@ def recommend_movies(favorite_titles):
             if m and getattr(m,'vote_count',0)>=20:
                 candidate_movies[mid] = m
 
+    # Fetch trending scores before computing movie scores
+    trending_scores = get_trending_popularity(tmdb.api_key)
+
     def compute_score(m):
         score = 0.0
         genres = {g['name'] for g in m.genres}
@@ -179,7 +196,8 @@ def recommend_movies(favorite_titles):
         except: pass
         score += recommendation_weights['ratings'] * ((m.vote_average or 0)/10)
         score += recommendation_weights['mood_tone'] * get_mood_score(m.genres, user_prefs['preferred_moods'])
-        score += recommendation_weights['trending_factor'] * 0.5
+        movie_trend_score = trending_scores.get(m.id, 0)
+        score += recommendation_weights['trending_factor'] * movie_trend_score
         score -= get_maturity_penalty(m.genres)
         try:
             release_year=int(m.release_date[:4])
