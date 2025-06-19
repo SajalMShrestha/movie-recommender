@@ -346,8 +346,7 @@ def recommend_movies(favorite_titles):
                 score -= 0.03  # small age penalty
         except:
             pass
-        # st.write(f"{m.title}: mood={mood_match_score:.2f}, genre_overlap={genre_overlap_score:.2f}, trending={movie_trend_score:.2f}")
-        score -= get_maturity_penalty(m.genres)
+        # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         try:
             release_year=int(m.release_date[:4])
             user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
@@ -360,32 +359,13 @@ def recommend_movies(favorite_titles):
     scored = [(m, compute_score(m) + min(m.vote_count, 500)/50000) for m in candidate_movies.values()]
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
-    low_votes = 0
-    genre_counts = {}
-    MAX_PER_GENRE = 3
-
+    low_votes=0
     for m, s in scored:
-        # preserve your low‐vote filter
-        if m.vote_count < 100:
-            if low_votes >= 2:
-                continue
-            low_votes += 1
-
-        # determine primary genre
-        primary = m.genres[0]["name"] if m.genres else "Other"
-        # only allow up to MAX_PER_GENRE per genre
-        if genre_counts.get(primary, 0) < MAX_PER_GENRE:
-            # include year in display title
-            title_with_year = (
-                f"{m.title} ({m.release_date[:4]})"
-                if m.release_date else m.title
-            )
-            top.append((title_with_year, s))
-            genre_counts[primary] = genre_counts.get(primary, 0) + 1
-
-        if len(top) == 10:
-            break
-
+        if m.vote_count<100:
+            if low_votes>=2: continue
+            low_votes+=1
+        top.append((m.title, s))
+        if len(top)==10: break
     return top, candidate_movies
 
 st.title("🎬 Movie AI Recommender")
@@ -496,8 +476,7 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
             st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
-        clean_title = title.rsplit("(", 1)[0].strip()
-        movie_obj = next((m for m in st.session_state.candidates.values() if m.title == clean_title), None)
+        movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
         if not movie_obj:
             continue
         release_year = movie_obj.release_date[:4] if movie_obj.release_date else "N/A"
