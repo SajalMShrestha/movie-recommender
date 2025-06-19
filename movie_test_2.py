@@ -49,15 +49,17 @@ if "recommend_triggered" not in st.session_state:
 if "favorite_movie_posters" not in st.session_state:
     st.session_state.favorite_movie_posters = {}
 
-# --- Recommendation weights and platform priorities ---
+# --- Updated recommendation weights ---
 recommendation_weights = {
-    "genre_similarity": 0.20,
-    "cast_crew": 0.25,
-    "release_year": 0.15,
-    "ratings": 0.20,
-    "mood_tone": 0.05,
-    "trending_factor": 0.15,
-    "age_alignment": 0.05
+    "mood_tone": 0.28,          # ↑ stronger emotional fit
+    "genre_similarity": 0.16,   # ↑ still useful, but secondary
+    "cast_crew": 0.15,          # ↓ modest influence
+    "narrative_style": 0.10,    # ↔️ not yet implemented, placeholder for future
+    "ratings": 0.08,            # ↓ modest quality filter
+    "trending_factor": 0.10,    # NEW: popularity boost
+    "release_year": 0.05,       # ↔️ subtle influence
+    "discovery_boost": 0.08,    # ↔️ minor novelty/obscurity encouragement
+    "age_alignment": 0.0        # temporarily removed to keep total = 1.0
 }
 
 streaming_platform_priority = {
