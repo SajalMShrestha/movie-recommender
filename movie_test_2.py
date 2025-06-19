@@ -217,7 +217,7 @@ def recommend_movies(favorite_titles):
         except: pass
         return max(score,0)
 
-    scored = [(m, compute_score(m) + min(m.vote_count,1000)/20000) for m in candidate_movies.values()]
+    scored = [(m, compute_score(m) + min(m.vote_count,1000)/40000) for m in candidate_movies.values()]
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
     low_votes=0
