@@ -360,13 +360,32 @@ def recommend_movies(favorite_titles):
     scored = [(m, compute_score(m) + min(m.vote_count, 500)/50000) for m in candidate_movies.values()]
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
-    low_votes=0
+    low_votes = 0
+    genre_counts = {}
+    MAX_PER_GENRE = 3
+
     for m, s in scored:
-        if m.vote_count<100:
-            if low_votes>=2: continue
-            low_votes+=1
-        top.append((m.title, s))
-        if len(top)==10: break
+        # preserve your low‐vote filter
+        if m.vote_count < 100:
+            if low_votes >= 2:
+                continue
+            low_votes += 1
+
+        # determine primary genre
+        primary = m.genres[0]["name"] if m.genres else "Other"
+        # only allow up to MAX_PER_GENRE per genre
+        if genre_counts.get(primary, 0) < MAX_PER_GENRE:
+            # include year in display title
+            title_with_year = (
+                f"{m.title} ({m.release_date[:4]})"
+                if m.release_date else m.title
+            )
+            top.append((title_with_year, s))
+            genre_counts[primary] = genre_counts.get(primary, 0) + 1
+
+        if len(top) == 10:
+            break
+
     return top, candidate_movies
 
 st.title("🎬 Movie AI Recommender")
