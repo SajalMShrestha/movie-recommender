@@ -165,6 +165,10 @@ def recommend_movies(favorite_titles):
         except:
             continue
 
+    # Add trending movies to candidate set
+    trending_scores = get_trending_popularity(tmdb.api_key)
+    candidate_movie_ids.update(trending_scores.keys())
+
     user_prefs = {
         "subscribed_platforms": [k for k,v in streaming_platform_priority.items() if v>0],
         "preferred_moods": plot_moods,
@@ -197,7 +201,13 @@ def recommend_movies(favorite_titles):
         score += recommendation_weights['ratings'] * ((m.vote_average or 0)/10)
         score += recommendation_weights['mood_tone'] * get_mood_score(m.genres, user_prefs['preferred_moods'])
         movie_trend_score = trending_scores.get(m.id, 0)
-        score += recommendation_weights['trending_factor'] * movie_trend_score
+        mood_match_score = get_mood_score(m.genres, user_prefs['preferred_moods'])
+        genre_overlap_score = len({g['name'] for g in m.genres} & favorite_genres) / max(len(favorite_genres), 1)
+
+        # Only apply trending boost if both mood and genre are somewhat aligned
+        if mood_match_score > 0.3 and genre_overlap_score > 0.2:
+            score += recommendation_weights['trending_factor'] * movie_trend_score
+        st.write(f"{m.title}: mood={mood_match_score:.2f}, genre_overlap={genre_overlap_score:.2f}, trending={movie_trend_score:.2f}")
         score -= get_maturity_penalty(m.genres)
         try:
             release_year=int(m.release_date[:4])
