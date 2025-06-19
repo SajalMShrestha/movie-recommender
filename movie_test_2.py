@@ -496,7 +496,8 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
             st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
-        movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
+        clean_title = title.rsplit("(", 1)[0].strip()
+        movie_obj = next((m for m in st.session_state.candidates.values() if m.title == clean_title), None)
         if not movie_obj:
             continue
         release_year = movie_obj.release_date[:4] if movie_obj.release_date else "N/A"
