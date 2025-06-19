@@ -5,12 +5,18 @@ import concurrent.futures
 import requests
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk import word_tokenize, pos_tag
+from nltk.corpus import stopwords
+import textstat
 import pandas as pd
 import time
 import json
 import os
 
 nltk.download('vader_lexicon')
+nltk.download('punkt')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('stopwords')
 
 # TMDb setup
 tmdb = TMDb()
@@ -136,10 +142,111 @@ def fetch_similar_movie_details(m_id):
         m_details.cast = list(m_credits['cast'])[:3]
         m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
         m_details.plot = m_details.overview or ""
+        m_details.narrative_style = infer_narrative_style(m_details.plot)
         cache[m_id] = m_details
         return m_id, m_details
     except:
         return m_id, None
+
+# Text analysis functions for narrative style detection
+stop_words = set(stopwords.words('english'))
+
+# Helper to tokenize and preprocess text once
+def preprocess_text(plot):
+    tokens = word_tokenize(plot.lower())
+    words = [word for word in tokens if word.isalpha() and word not in stop_words]
+    return words
+
+# 1. Tone (Sentiment)
+def infer_tone(plot):
+    sentiment = sia.polarity_scores(plot)
+    if sentiment['compound'] >= 0.3:
+        return "positive"
+    elif sentiment['compound'] <= -0.3:
+        return "negative"
+    else:
+        return "neutral"
+
+# 2. Narrative Complexity
+def infer_narrative_complexity(plot):
+    readability = textstat.flesch_kincaid_grade(plot)
+    words = preprocess_text(plot)
+    unique_words_ratio = len(set(words)) / max(len(words), 1)
+
+    # Adjusted complexity thresholds (more suitable for shorter texts)
+    if readability >= 9 or unique_words_ratio >= 0.5:
+        return "complex"
+    else:
+        return "simple"
+
+# Keywords refined as sets for accurate checking
+action_keywords = {"chase", "fight", "escape", "war", "battle", "mission", "rescue"}
+emotion_keywords = {"love", "friendship", "betrayal", "grief", "romance", "relationship", "emotional"}
+concept_keywords = {"reality", "consciousness", "philosophy", "dream", "mystery", "existential"}
+
+# 3. Genre Indicators
+def infer_genre_indicator(plot):
+    words = set(preprocess_text(plot))
+    if words & action_keywords:
+        return "action-oriented"
+    elif words & emotion_keywords:
+        return "emotion/character-oriented"
+    elif words & concept_keywords:
+        return "idea/concept-oriented"
+    else:
+        return "general"
+
+realistic_keywords = {"city", "suburb", "historical", "town", "village", "real-life", "everyday", "ordinary"}
+fantasy_keywords = {"galaxy", "kingdom", "future", "space", "magical", "supernatural", "alien", "fantasy", "alternate"}
+
+# 4. Setting Context
+def infer_setting_context(plot):
+    words = set(preprocess_text(plot))
+    if words & fantasy_keywords:
+        return "fantastical/surreal"
+    elif words & realistic_keywords:
+        return "realistic"
+    else:
+        return "neutral"
+
+def infer_narrative_style(plot):
+    if not plot:
+        return {
+            "tone": "neutral",
+            "complexity": "simple",
+            "genre_indicator": "general",
+            "setting_context": "neutral"
+        }
+
+    plot_lower = plot.lower()
+    tokens = word_tokenize(plot_lower)
+    words = [word for word in tokens if word.isalpha() and word not in stop_words]
+    word_set = set(words)
+
+    sentiment = sia.polarity_scores(plot)
+    tone = ("positive" if sentiment['compound'] >= 0.3 else
+            "negative" if sentiment['compound'] <= -0.3 else
+            "neutral")
+
+    readability = textstat.flesch_kincaid_grade(plot)
+    unique_words_ratio = len(word_set) / max(len(words), 1)
+    complexity = "complex" if readability >= 9 or unique_words_ratio >= 0.5 else "simple"
+
+    genre_indicator = ("action-oriented" if word_set & action_keywords else
+                       "emotion/character-oriented" if word_set & emotion_keywords else
+                       "idea/concept-oriented" if word_set & concept_keywords else
+                       "general")
+
+    setting_context = ("fantastical/surreal" if word_set & fantasy_keywords else
+                       "realistic" if word_set & realistic_keywords else
+                       "neutral")
+
+    return {
+        "tone": tone,
+        "complexity": complexity,
+        "genre_indicator": genre_indicator,
+        "setting_context": setting_context
+    }
 
 # --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
@@ -187,6 +294,8 @@ def recommend_movies(favorite_titles):
     trending_scores = get_trending_popularity(tmdb.api_key)
 
     def compute_score(m):
+        narrative = m.narrative_style
+        st.write(f"{m.title} narrative style: {narrative}")
         score = 0.0
         genres = {g['name'] for g in m.genres}
         score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres)/max(len(favorite_genres),1))
