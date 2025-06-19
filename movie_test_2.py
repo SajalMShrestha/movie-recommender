@@ -329,7 +329,7 @@ def recommend_movies(favorite_titles):
         narrative = infer_narrative_style(m.plot)
         narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
         score += recommendation_weights['narrative_style'] * narrative_match_score
-        st.write(f"{m.title} narrative_match={narrative_match_score:.2f}")
+        # st.write(f"{m.title} narrative_match={narrative_match_score:.2f}")
 
         movie_trend_score = trending_scores.get(m.id, 0)
         mood_match_score = get_mood_score(m.genres, user_prefs['preferred_moods'])
@@ -346,7 +346,7 @@ def recommend_movies(favorite_titles):
                 score -= 0.03  # small age penalty
         except:
             pass
-        st.write(f"{m.title}: mood={mood_match_score:.2f}, genre_overlap={genre_overlap_score:.2f}, trending={movie_trend_score:.2f}")
+        # st.write(f"{m.title}: mood={mood_match_score:.2f}, genre_overlap={genre_overlap_score:.2f}, trending={movie_trend_score:.2f}")
         score -= get_maturity_penalty(m.genres)
         try:
             release_year=int(m.release_date[:4])
@@ -354,7 +354,7 @@ def recommend_movies(favorite_titles):
             if 15<=user_age_at_release<=25: score += recommendation_weights['age_alignment']
             elif 10<=user_age_at_release<15 or 25<user_age_at_release<=30: score += recommendation_weights['age_alignment']*0.5
         except: pass
-        st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
+        # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         return max(score,0)
 
     scored = [(m, compute_score(m) + min(m.vote_count, 500)/50000) for m in candidate_movies.values()]
@@ -480,7 +480,8 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
         movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
         if not movie_obj:
             continue
-        st.markdown(f"### {idx}. {movie_obj.title}")
+        release_year = movie_obj.release_date[:4] if movie_obj.release_date else "N/A"
+        st.markdown(f"### {idx}. {movie_obj.title} ({release_year})")
         col1, col2, col3 = st.columns([1, 2, 1])
 
         with col1:
