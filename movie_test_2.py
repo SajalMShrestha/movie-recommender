@@ -206,7 +206,7 @@ def recommend_movies(favorite_titles):
 
         # Only apply trending boost if both mood and genre are somewhat aligned
         if mood_match_score > 0.3 and genre_overlap_score > 0.2:
-            score += recommendation_weights['trending_factor'] * movie_trend_score
+            score += 2 * recommendation_weights['trending_factor'] * movie_trend_score
         st.write(f"{m.title}: mood={mood_match_score:.2f}, genre_overlap={genre_overlap_score:.2f}, trending={movie_trend_score:.2f}")
         score -= get_maturity_penalty(m.genres)
         try:
@@ -215,6 +215,7 @@ def recommend_movies(favorite_titles):
             if 15<=user_age_at_release<=25: score += recommendation_weights['age_alignment']
             elif 10<=user_age_at_release<15 or 25<user_age_at_release<=30: score += recommendation_weights['age_alignment']*0.5
         except: pass
+        st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         return max(score,0)
 
     scored = [(m, compute_score(m) + min(m.vote_count,1000)/40000) for m in candidate_movies.values()]
