@@ -12,6 +12,7 @@ import pandas as pd
 import time
 import json
 import os
+from collections import Counter
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
@@ -130,6 +131,17 @@ def estimate_user_age(years):
         return 30
     median = sorted(years)[len(years)//2]
     return datetime.now().year - median + 18
+
+from collections import Counter
+
+def compute_narrative_similarity(candidate_style, reference_styles):
+    similarity = 0
+    for key in candidate_style:
+        if not reference_styles[key]: continue
+        dominant = Counter(reference_styles[key]).most_common(1)[0][0]
+        if candidate_style[key] == dominant:
+            similarity += 1
+    return similarity / len(candidate_style)
 
 cache = {}
 def fetch_similar_movie_details(m_id):
@@ -252,6 +264,7 @@ def infer_narrative_style(plot):
 def recommend_movies(favorite_titles):
     favorite_genres, favorite_actors = set(), set()
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
+    favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
 
     for title in favorite_titles:
         search_result = movie_api.search(title)
@@ -263,6 +276,9 @@ def recommend_movies(favorite_titles):
         favorite_actors.update([c['name'] for c in list(credits['cast'])[:3]])
         favorite_actors.update([d['name'] for d in credits['crew'] if d['job']=='Director'])
         plot_moods.add(infer_mood_from_plot(details.overview or ""))
+        narr_style = infer_narrative_style(details.overview or "")
+        for key in favorite_narrative_styles:
+            favorite_narrative_styles[key].append(narr_style.get(key, ""))
         if details.release_date:
             favorite_years.append(int(details.release_date[:4]))
         try:
@@ -309,6 +325,12 @@ def recommend_movies(favorite_titles):
         except: pass
         score += recommendation_weights['ratings'] * ((m.vote_average or 0)/10)
         score += recommendation_weights['mood_tone'] * get_mood_score(m.genres, user_prefs['preferred_moods'])
+
+        narrative = infer_narrative_style(m.plot)
+        narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
+        score += recommendation_weights['narrative_style'] * narrative_match_score
+        st.write(f"{m.title} narrative_match={narrative_match_score:.2f}")
+
         movie_trend_score = trending_scores.get(m.id, 0)
         mood_match_score = get_mood_score(m.genres, user_prefs['preferred_moods'])
         genre_overlap_score = len({g['name'] for g in m.genres} & favorite_genres) / max(len(favorite_genres), 1)
