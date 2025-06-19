@@ -311,7 +311,7 @@ def recommend_movies(favorite_titles):
 
     def compute_score(m):
         narrative = m.narrative_style
-        st.write(f"{m.title} narrative style: {narrative}")
+        # st.write(f"{m.title} narrative style: {narrative}")  # Removed from UI
         score = 0.0
         genres = {g['name'] for g in m.genres}
         score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres)/max(len(favorite_genres),1))
