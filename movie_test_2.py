@@ -538,29 +538,23 @@ if search_results:
 if 'favorite_movies' not in st.session_state:
     st.session_state.favorite_movies = []
 
-@st.experimental_fragment
-def render_selected_movies():
-    st.subheader("🎬 Your Selected Movies (5 max)")
-    for movie in st.session_state.favorite_movies:
+st.subheader("🎬 Your Selected Movies (5 max)")
+
+movie_container = st.container()
+with movie_container:
+    for i, movie in enumerate(st.session_state.favorite_movies):
         col1, col2 = st.columns([1, 4])
         with col1:
-            poster_url = f"https://image.tmdb.org/t/p/w200{movie.get('poster_path')}" if movie.get('poster_path') else None
-            if poster_url:
-                st.image(poster_url, width=100)
+            if movie.get("poster_path"):
+                st.image(f"https://image.tmdb.org/t/p/w200{movie['poster_path']}", width=100)
             else:
                 st.text("No image")
         with col2:
             st.markdown(f"**{movie['title']} ({movie['year']})**")
-            remove_button = st.button("Remove", key=f"remove_{movie['title']}")
-            if remove_button:
-                st.session_state.favorite_movies = [
-                    m for m in st.session_state.favorite_movies if m['title'] != movie['title']
-                ]
+            if st.button("Remove", key=f"remove_{i}"):
+                st.session_state.favorite_movies.pop(i)
                 save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.rerun()
-
-if st.session_state.favorite_movies:
-    render_selected_movies()
+                st.experimental_rerun()
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
