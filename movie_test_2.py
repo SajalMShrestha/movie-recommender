@@ -165,20 +165,27 @@ def fetch_similar_movie_details(m_id):
     try:
         m_details = movie_api.details(m_id)
         m_credits = movie_api.credits(m_id)
+
         m_details.genres = m_details.genres
         m_details.cast = list(m_credits['cast'])[:3]
         m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
         m_details.plot = m_details.overview or ""
+
+        # 🚫 Skip if plot is missing or too short to embed meaningfully
+        if not m_details.plot or len(m_details.plot.split()) < 5:
+            st.write(f"⚠️ Skipping {m_details.title} due to missing/short plot")
+            return m_id, None
+
         m_details.narrative_style = infer_narrative_style(m_details.plot)
 
-        # 👇 Embed the plot (fallback to empty string)
-        plot_text = m_details.plot or ""
-        embedding = embedding_model.encode(plot_text)
+        # ✅ Generate embedding
+        embedding = embedding_model.encode(m_details.plot)
 
-        # Return full tuple
         cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
-    except:
+
+    except Exception as e:
+        st.write(f"❌ Error fetching {m_id}: {e}")
         return m_id, None
 
 # Text analysis functions for narrative style detection
