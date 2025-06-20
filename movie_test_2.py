@@ -18,6 +18,7 @@ import numpy as np
 from numpy.linalg import norm
 from numpy import mean, dot
 from sentence_transformers.util import cos_sim
+import uuid
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
@@ -65,6 +66,11 @@ def save_session(session_data):
 
 # Restore session state
 saved_state = load_session()
+
+# Add a persistent UUID for the session
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
 if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = saved_state.get("favorite_movies", [])
 if "selected_movie" not in st.session_state:
@@ -370,9 +376,19 @@ def recommend_movies(favorite_titles):
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
         for fut in concurrent.futures.as_completed(futures):
-            mid, (m, embedding) = fut.result()
-            if m and getattr(m,'vote_count',0)>=20:
-                candidate_movies[mid] = (m, embedding)
+            result = fut.result()
+            if result is None:
+                continue
+            mid, m = result
+            if m is None or getattr(m, 'vote_count', 0) < 20:
+                continue
+            try:
+                embedding = embedding_model.encode(m.plot) if m.plot else None
+            except:
+                embedding = None
+            if embedding is None:
+                continue
+            candidate_movies[mid] = (m, embedding)
 
     # Fetch trending scores before computing movie scores
     trending_scores = get_trending_popularity(tmdb.api_key)
@@ -430,7 +446,13 @@ def recommend_movies(favorite_titles):
         # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         return max(score, 0)
 
-    scored = [(m, compute_score(m, avg_fav_embedding) + min(m.vote_count, 500)/50000) for m, _ in candidate_movies.values()]
+    scored = []
+    for movie_obj, embedding in candidate_movies.values():
+        if movie_obj is None or embedding is None:
+            continue
+        score = compute_score(movie_obj, avg_fav_embedding) + min(movie_obj.vote_count, 500) / 50000
+        scored.append((movie_obj, score))
+
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
     low_votes=0
@@ -536,24 +558,50 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
 
     def save_feedback_to_csv():
         feedback_rows = []
+        favorite_snapshot = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+
         for key, val in st.session_state.items():
             if key.startswith("feedback_obj_") and isinstance(val, dict):
+                movie_title = val["title"]
+                movie_obj, embedding = None, None
+                score, similarity, source = None, None, "unknown"
+
+                # Match the movie from stored candidates
+                for mid, (m, emb) in st.session_state.candidates.items():
+                    if m.title == movie_title:
+                        movie_obj, embedding = m, emb
+                        score = st.session_state.get(f"score_{m.id}")
+                        similarity = st.session_state.get(f"similarity_{m.id}")
+                        source = "tmdb_similar" if hasattr(m, "similar_to") else "trending"
+                        break
+
                 feedback_rows.append({
+                    "session_id": st.session_state.session_id,
                     "timestamp": datetime.now().isoformat(),
-                    "movie_title": val["title"],
+                    "movie_title": movie_title,
+                    "movie_id": getattr(movie_obj, "id", "N/A"),
                     "response": val["response"],
-                    "liked": val.get("liked")
+                    "liked": val.get("liked"),
+                    "recommendation_score": round(score, 4) if score is not None else None,
+                    "embedding_similarity_score": round(similarity, 4) if similarity is not None else None,
+                    "source": source,
+                    "user_favorites": ", ".join(favorite_snapshot)
                 })
+
         if feedback_rows:
             df = pd.DataFrame(feedback_rows)
             df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
             st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
-        movie_obj = next((m for m, _ in st.session_state.candidates.values() if m.title == title), None)
-        if not movie_obj:
+        movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == title), None)
+        if movie_obj is None:
             continue
-        release_year = movie_obj.release_date[:4] if movie_obj.release_date else "N/A"
+        release_year = "N/A"
+        try:
+            release_year = movie_obj.release_date[:4]
+        except:
+            pass
         st.markdown(f"### {idx}. {movie_obj.title} ({release_year})")
         col1, col2, col3 = st.columns([1, 2, 1])
 
