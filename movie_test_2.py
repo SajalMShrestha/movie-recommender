@@ -589,8 +589,16 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
                 })
 
         if feedback_rows:
+            log_file = "user_feedback_log.csv"
+            
+            if not os.path.exists(log_file):
+                pd.DataFrame(columns=[
+                    "session_id", "timestamp", "movie_title", "movie_id", "response", "liked",
+                    "recommendation_score", "embedding_similarity_score", "source", "user_favorites"
+                ]).to_csv(log_file, index=False)
+
             df = pd.DataFrame(feedback_rows)
-            df.to_csv("user_feedback_log.csv", mode="a", header=False, index=False)
+            df.to_csv(log_file, mode="a", header=False, index=False)
             st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
