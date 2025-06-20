@@ -390,6 +390,13 @@ def recommend_movies(favorite_titles):
                 continue
             candidate_movies[mid] = (m, embedding)
 
+    st.write(f"🎯 Favorite titles: {favorite_titles}")
+    st.write(f"🔍 Candidate Movie IDs fetched: {len(candidate_movie_ids)}")
+    st.write(f"🧠 Candidate Movies with embeddings: {len(candidate_movies)}")
+
+    if not candidate_movies:
+        st.warning("No candidate movies with valid plots or embeddings were found.")
+
     # Fetch trending scores before computing movie scores
     trending_scores = get_trending_popularity(tmdb.api_key)
 
