@@ -677,3 +677,12 @@ if st.session_state.recommend_triggered:
             "favorite_movies": st.session_state.favorite_movies,
             "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
         })
+
+# --- Display Feedback Log ---
+if os.path.exists("user_feedback_log.json"):
+    st.success("✅ Feedback file found!")
+    with open("user_feedback_log.json", "r") as f:
+        feedback_data = json.load(f)
+        st.json(feedback_data)
+else:
+    st.error("⚠️ No feedback log file found in your project directory.")
