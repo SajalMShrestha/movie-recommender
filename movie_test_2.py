@@ -453,6 +453,9 @@ def recommend_movies(favorite_titles):
         score = compute_score(movie_obj, avg_fav_embedding) + min(movie_obj.vote_count, 500) / 50000
         scored.append((movie_obj, score))
 
+    st.write(f"✅ Candidate movies count: {len(candidate_movies)}")
+    st.write(f"✅ Valid scored movies: {len(scored)}")
+
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
     low_votes=0
@@ -553,8 +556,12 @@ if st.button("🎬 Get Recommendations"):
                 st.error(f"❌ Failed to generate recommendations: {e}")
 
 # Display recommendations and feedback
-if st.session_state.recommend_triggered and st.session_state.recommendations:
-    st.subheader("🌟 Your Top 10 Movie Recommendations")
+if st.session_state.recommend_triggered:
+    if not st.session_state.recommendations:
+        st.warning("⚠️ No recommendations could be generated. Please try different favorite movies.")
+        st.info("Tip: Make sure your selected movies have plot summaries and at least some popularity.")
+    else:
+        st.subheader("🌟 Your Top 10 Movie Recommendations")
 
     def save_feedback_to_csv():
         feedback_rows = []
