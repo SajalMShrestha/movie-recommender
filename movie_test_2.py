@@ -17,6 +17,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from numpy.linalg import norm
 from numpy import mean, dot
+from sentence_transformers.util import cos_sim
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
@@ -340,6 +341,22 @@ def recommend_movies(favorite_titles):
         except:
             continue
 
+    # Compute average embedding of favorite movies
+    favorite_embeddings = []
+    for title in favorite_titles:
+        results = movie_api.search(title)
+        if results:
+            details = movie_api.details(results[0].id)
+            overview = details.overview or ""
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+
+    if favorite_embeddings:
+        from torch import stack
+        avg_fav_embedding = stack(favorite_embeddings).mean(dim=0)
+    else:
+        avg_fav_embedding = None
+
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
 
@@ -360,8 +377,7 @@ def recommend_movies(favorite_titles):
     # Fetch trending scores before computing movie scores
     trending_scores = get_trending_popularity(tmdb.api_key)
 
-    def compute_score(m_tuple):
-        m, emb = m_tuple
+    def compute_score(m, avg_fav_embedding):
         narrative = m.narrative_style
         # st.write(f"{m.title} narrative style: {narrative}")  # Removed from UI
         score = 0.0
@@ -383,10 +399,11 @@ def recommend_movies(favorite_titles):
         score += recommendation_weights['narrative_style'] * narrative_match_score
         # st.write(f"{m.title} narrative_match={narrative_match_score:.2f}")
 
-        # Add embedding similarity
-        if avg_favorite_embedding is not None and emb is not None:
-            sim = cosine_similarity(avg_favorite_embedding, emb)
-            score += recommendation_weights['embedding_similarity'] * sim
+        # --- New: Embedding Similarity ---
+        candidate_embedding = candidate_movies[m.id][1]  # (movie_obj, embedding)
+        embedding_sim_score = float(cos_sim(candidate_embedding, avg_fav_embedding))
+
+        score += recommendation_weights['embedding_similarity'] * embedding_sim_score
 
         movie_trend_score = trending_scores.get(m.id, 0)
         mood_match_score = get_mood_score(m.genres, user_prefs['preferred_moods'])
@@ -411,15 +428,9 @@ def recommend_movies(favorite_titles):
             elif 10<=user_age_at_release<15 or 25<user_age_at_release<=30: score += recommendation_weights['age_alignment']*0.5
         except: pass
         # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
-        return max(score,0)
+        return max(score, 0)
 
-    favorite_embeddings = []
-    for mid, (movie_obj, embedding) in candidate_movies.items():
-        if movie_obj.title in favorite_titles:
-            favorite_embeddings.append(embedding)
-    avg_favorite_embedding = mean(favorite_embeddings, axis=0) if favorite_embeddings else None
-
-    scored = [(m, compute_score((m, emb)) + min(m.vote_count, 500)/50000) for m, emb in candidate_movies.values()]
+    scored = [(m, compute_score(m, avg_fav_embedding) + min(m.vote_count, 500)/50000) for m, _ in candidate_movies.values()]
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
     low_votes=0
