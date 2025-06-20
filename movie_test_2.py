@@ -386,14 +386,13 @@ def recommend_movies(favorite_titles):
             result = fut.result()
             if result is None:
                 continue
-            mid, m = result
-            if m is None or getattr(m, 'vote_count', 0) < 20:
+            mid, payload = result
+            if payload is None:
                 continue
-            try:
-                embedding = embedding_model.encode(m.plot) if m.plot else None
-            except:
-                embedding = None
-            if embedding is None:
+            m, embedding = payload
+            if m is None or embedding is None:
+                continue
+            if getattr(m, 'vote_count', 0) < 20:
                 continue
             candidate_movies[mid] = (m, embedding)
 
