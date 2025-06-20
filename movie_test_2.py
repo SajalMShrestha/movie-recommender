@@ -185,7 +185,7 @@ def fetch_similar_movie_details(m_id):
         return m_id, (m_details, embedding)
 
     except Exception as e:
-        st.write(f"❌ Error fetching {m_id}: {e}")
+        st.warning(f"Embedding fetch failed for ID {m_id}: {e}")
         return m_id, None
 
 # Text analysis functions for narrative style detection
@@ -400,6 +400,9 @@ def recommend_movies(favorite_titles):
     st.write(f"🎯 Favorite titles: {favorite_titles}")
     st.write(f"🔍 Candidate Movie IDs fetched: {len(candidate_movie_ids)}")
     st.write(f"🧠 Candidate Movies with embeddings: {len(candidate_movies)}")
+
+    valid_titles = [m.title for m, emb in candidate_movies.values() if m and emb is not None]
+    st.markdown(f"✅ Valid candidate titles: {valid_titles}")
 
     if not candidate_movies:
         st.warning("No candidate movies with valid plots or embeddings were found.")
