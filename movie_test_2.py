@@ -158,17 +158,17 @@ def fetch_similar_movie_details(m_id):
     try:
         m_details = movie_api.details(m_id)
         m_credits = movie_api.credits(m_id)
-        m_keywords = movie_api.keywords(m_id).get("keywords", [])
-
-        enriched_plot = construct_enriched_description(m_details, m_credits, m_keywords)
-
         m_details.genres = m_details.genres
         m_details.cast = list(m_credits['cast'])[:3]
         m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
-        m_details.plot = enriched_plot  # Replace short plot with enriched one
-        m_details.narrative_style = infer_narrative_style(enriched_plot)
+        m_details.plot = m_details.overview or ""
+        m_details.narrative_style = infer_narrative_style(m_details.plot)
 
-        embedding = generate_embedding(m_details.plot + " Genres: " + ", ".join([g['name'] for g in m_details.genres]))
+        # 👇 Embed the plot (fallback to empty string)
+        plot_text = m_details.plot or ""
+        embedding = embedding_model.encode(plot_text)
+
+        # Return full tuple
         cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
     except:
