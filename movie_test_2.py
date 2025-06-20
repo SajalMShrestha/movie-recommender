@@ -13,6 +13,10 @@ import time
 import json
 import os
 from collections import Counter
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from numpy.linalg import norm
+from numpy import mean, dot
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
@@ -28,6 +32,9 @@ tmdb.language = 'en'
 tmdb.debug = True
 movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
+
+# Initialize embedding model for semantic analysis
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # fast & good quality
 
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
@@ -72,15 +79,16 @@ if "favorite_movie_posters" not in st.session_state:
 
 # --- Updated recommendation weights ---
 recommendation_weights = {
-    "mood_tone": 0.28,          # ↑ stronger emotional fit
-    "genre_similarity": 0.16,   # ↑ still useful, but secondary
-    "cast_crew": 0.15,          # ↓ modest influence
-    "narrative_style": 0.10,    # ↔️ not yet implemented, placeholder for future
-    "ratings": 0.08,            # ↓ modest quality filter
-    "trending_factor": 0.10,    # NEW: popularity boost
-    "release_year": 0.05,       # ↔️ subtle influence
-    "discovery_boost": 0.08,    # ↔️ minor novelty/obscurity encouragement
-    "age_alignment": 0.0        # temporarily removed to keep total = 1.0
+    "mood_tone": 0.224,
+    "genre_similarity": 0.128,
+    "cast_crew": 0.120,
+    "narrative_style": 0.080,
+    "ratings": 0.064,
+    "trending_factor": 0.080,
+    "release_year": 0.040,
+    "discovery_boost": 0.064,
+    "age_alignment": 0.0,
+    "embedding_similarity": 0.20
 }
 
 streaming_platform_priority = {
@@ -150,13 +158,19 @@ def fetch_similar_movie_details(m_id):
     try:
         m_details = movie_api.details(m_id)
         m_credits = movie_api.credits(m_id)
+        m_keywords = movie_api.keywords(m_id).get("keywords", [])
+
+        enriched_plot = construct_enriched_description(m_details, m_credits, m_keywords)
+
         m_details.genres = m_details.genres
         m_details.cast = list(m_credits['cast'])[:3]
         m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
-        m_details.plot = m_details.overview or ""
-        m_details.narrative_style = infer_narrative_style(m_details.plot)
-        cache[m_id] = m_details
-        return m_id, m_details
+        m_details.plot = enriched_plot  # Replace short plot with enriched one
+        m_details.narrative_style = infer_narrative_style(enriched_plot)
+
+        embedding = generate_embedding(m_details.plot + " Genres: " + ", ".join([g['name'] for g in m_details.genres]))
+        cache[m_id] = (m_details, embedding)
+        return m_id, (m_details, embedding)
     except:
         return m_id, None
 
@@ -221,6 +235,15 @@ def infer_setting_context(plot):
     else:
         return "neutral"
 
+# Generate embeddings for semantic similarity
+def generate_embedding(text):
+    if not text:
+        return np.zeros(384)  # Embedding size for MiniLM
+    return embedding_model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
+
+def cosine_similarity(vec1, vec2):
+    return dot(vec1, vec2) / (norm(vec1) * norm(vec2) + 1e-8)
+
 def infer_narrative_style(plot):
     if not plot:
         return {
@@ -260,11 +283,35 @@ def infer_narrative_style(plot):
         "setting_context": setting_context
     }
 
+def construct_enriched_description(movie_details, credits, keywords=None):
+    title = movie_details.title
+    genres = [g['name'] for g in movie_details.genres]
+    cast = [c['name'] for c in credits.get('cast', [])[:3]]
+    directors = [c['name'] for c in credits.get('crew', []) if c['job'] == 'Director']
+    tagline = getattr(movie_details, 'tagline', '')
+    overview = getattr(movie_details, 'overview', '')
+    keyword_list = [k['name'] for k in keywords] if keywords else []
+
+    enriched_text = f"{title} is a {', '.join(genres)} movie"
+    if directors:
+        enriched_text += f" directed by {', '.join(directors)}"
+    if cast:
+        enriched_text += f", starring {', '.join(cast)}"
+    enriched_text += ". "
+    if tagline:
+        enriched_text += f"Tagline: {tagline}. "
+    if keyword_list:
+        enriched_text += f"Keywords: {', '.join(keyword_list)}. "
+    enriched_text += f"Plot: {overview}"
+
+    return enriched_text
+
 # --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
     favorite_genres, favorite_actors = set(), set()
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
     favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
+    favorite_embeddings = []
 
     for title in favorite_titles:
         search_result = movie_api.search(title)
@@ -281,6 +328,11 @@ def recommend_movies(favorite_titles):
             favorite_narrative_styles[key].append(narr_style.get(key, ""))
         if details.release_date:
             favorite_years.append(int(details.release_date[:4]))
+        
+        enriched_plot = f"{details.overview} Genres: {', '.join([g['name'] for g in details.genres])}."
+        embedding = generate_embedding(enriched_plot)
+        favorite_embeddings.append(embedding)
+        
         try:
             similar_list = movie_api.similar(details.id)
             if similar_list:
@@ -290,7 +342,6 @@ def recommend_movies(favorite_titles):
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
-    candidate_movie_ids.update(trending_scores.keys())
 
     user_prefs = {
         "subscribed_platforms": [k for k,v in streaming_platform_priority.items() if v>0],
@@ -302,14 +353,15 @@ def recommend_movies(favorite_titles):
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
         for fut in concurrent.futures.as_completed(futures):
-            mid, m = fut.result()
+            mid, (m, embedding) = fut.result()
             if m and getattr(m,'vote_count',0)>=20:
-                candidate_movies[mid] = m
+                candidate_movies[mid] = (m, embedding)
 
     # Fetch trending scores before computing movie scores
     trending_scores = get_trending_popularity(tmdb.api_key)
 
-    def compute_score(m):
+    def compute_score(m_tuple):
+        m, emb = m_tuple
         narrative = m.narrative_style
         # st.write(f"{m.title} narrative style: {narrative}")  # Removed from UI
         score = 0.0
@@ -330,6 +382,11 @@ def recommend_movies(favorite_titles):
         narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
         score += recommendation_weights['narrative_style'] * narrative_match_score
         # st.write(f"{m.title} narrative_match={narrative_match_score:.2f}")
+
+        # Add embedding similarity
+        if avg_favorite_embedding is not None and emb is not None:
+            sim = cosine_similarity(avg_favorite_embedding, emb)
+            score += recommendation_weights['embedding_similarity'] * sim
 
         movie_trend_score = trending_scores.get(m.id, 0)
         mood_match_score = get_mood_score(m.genres, user_prefs['preferred_moods'])
@@ -356,7 +413,13 @@ def recommend_movies(favorite_titles):
         # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         return max(score,0)
 
-    scored = [(m, compute_score(m) + min(m.vote_count, 500)/50000) for m in candidate_movies.values()]
+    favorite_embeddings = []
+    for mid, (movie_obj, embedding) in candidate_movies.items():
+        if movie_obj.title in favorite_titles:
+            favorite_embeddings.append(embedding)
+    avg_favorite_embedding = mean(favorite_embeddings, axis=0) if favorite_embeddings else None
+
+    scored = [(m, compute_score((m, emb)) + min(m.vote_count, 500)/50000) for m, emb in candidate_movies.values()]
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
     low_votes=0
@@ -476,7 +539,7 @@ if st.session_state.recommend_triggered and st.session_state.recommendations:
             st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
-        movie_obj = next((m for m in st.session_state.candidates.values() if m.title == title), None)
+        movie_obj = next((m for m, _ in st.session_state.candidates.values() if m.title == title), None)
         if not movie_obj:
             continue
         release_year = movie_obj.release_date[:4] if movie_obj.release_date else "N/A"
