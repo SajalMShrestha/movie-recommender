@@ -19,11 +19,20 @@ from numpy.linalg import norm
 from numpy import mean, dot
 from sentence_transformers.util import cos_sim
 import uuid
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('stopwords')
+
+# Initialize Firebase Admin SDK once
+if not firebase_admin._apps:
+    cred = credentials.Certificate("your-firebase-adminsdk.json")  # 🔐 Use your own secret path
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 # TMDb setup
 tmdb = TMDb()
@@ -585,50 +594,34 @@ if st.session_state.recommend_triggered:
     else:
         st.subheader("🌟 Your Top 10 Movie Recommendations")
 
-    def save_feedback_to_csv():
-        feedback_rows = []
+    def save_feedback_to_firestore():
         favorite_snapshot = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
 
         for key, val in st.session_state.items():
             if key.startswith("feedback_obj_") and isinstance(val, dict):
                 movie_title = val["title"]
-                movie_obj, embedding = None, None
-                score, similarity, source = None, None, "unknown"
+                liked = val.get("liked")
+                response = val.get("response")
+                movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == movie_title), None)
 
-                # Match the movie from stored candidates
-                for mid, (m, emb) in st.session_state.candidates.items():
-                    if m.title == movie_title:
-                        movie_obj, embedding = m, emb
-                        score = st.session_state.get(f"score_{m.id}")
-                        similarity = st.session_state.get(f"similarity_{m.id}")
-                        source = "tmdb_similar" if hasattr(m, "similar_to") else "trending"
-                        break
+                if not movie_obj:
+                    continue
 
-                feedback_rows.append({
-                    "session_id": st.session_state.session_id,
-                    "timestamp": datetime.now().isoformat(),
+                doc_data = {
+                    "user_id": st.session_state.session_id,
+                    "timestamp": datetime.utcnow(),
                     "movie_title": movie_title,
-                    "movie_id": getattr(movie_obj, "id", "N/A"),
-                    "response": val["response"],
-                    "liked": val.get("liked"),
-                    "recommendation_score": round(score, 4) if score is not None else None,
-                    "embedding_similarity_score": round(similarity, 4) if similarity is not None else None,
-                    "source": source,
-                    "user_favorites": ", ".join(favorite_snapshot)
-                })
+                    "tmdb_movie_id": str(getattr(movie_obj, "id", "")),
+                    "comment": "",  # extend if you collect text input
+                    "liked": liked if liked is not None else False,
+                    "response": response,
+                    "source": "tmdb_similar" if hasattr(movie_obj, "similar_to") else "trending",
+                    "user_favorites": favorite_snapshot
+                }
 
-        if feedback_rows:
-            log_file = "user_feedback_log.csv"
-            
-            if not os.path.exists(log_file):
-                pd.DataFrame(columns=[
-                    "session_id", "timestamp", "movie_title", "movie_id", "response", "liked",
-                    "recommendation_score", "embedding_similarity_score", "source", "user_favorites"
-                ]).to_csv(log_file, index=False)
+                db.collection("user_feedback").add(doc_data)
 
-            df = pd.DataFrame(feedback_rows)
-            df.to_csv(log_file, mode="a", header=False, index=False)
-            st.success("✅ Feedback saved!")
+        st.success("✅ Feedback saved to Firestore!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
         movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == title), None)
@@ -672,7 +665,7 @@ if st.session_state.recommend_triggered:
         st.markdown("---")
 
     if st.button("Submit Feedback"):
-        save_feedback_to_csv()
+        save_feedback_to_firestore()
         save_session({
             "favorite_movies": st.session_state.favorite_movies,
             "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
