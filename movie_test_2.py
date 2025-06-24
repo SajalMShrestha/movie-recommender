@@ -536,26 +536,56 @@ if search_results:
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
-if st.session_state.favorite_movies:
-    cols = st.columns(len(st.session_state.favorite_movies))
 
-    for i, movie in enumerate(st.session_state.favorite_movies):
-        title = movie["title"]
-        year = movie["year"]
-        poster = movie.get("poster_path")
+st.markdown(
+    """
+    <style>
+    .movie-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: flex-start;
+    }
+    .movie-card {
+        width: 140px;
+        text-align: center;
+    }
+    .movie-card img {
+        height: 200px;
+        width: 120px;
+        object-fit: cover;
+        border-radius: 6px;
+    }
+    .remove-button {
+        margin-top: 5px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-        with cols[i]:
-            if poster:
-                st.image(f"https://image.tmdb.org/t/p/w200{poster}", width=120)
-            else:
-                st.text("No image")
-            st.markdown(f"**{title} ({year})**")
-            if st.button("Remove", key=f"remove_{i}"):
-                st.session_state.favorite_movies.pop(i)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.experimental_rerun()
-else:
-    st.info("No favorite movies added yet.")
+st.markdown('<div class="movie-grid">', unsafe_allow_html=True)
+
+for i, movie in enumerate(st.session_state.favorite_movies):
+    title = movie["title"]
+    year = movie["year"]
+    poster = movie.get("poster_path")
+    poster_url = f"https://image.tmdb.org/t/p/w200{poster}" if poster else ""
+
+    st.markdown(f"""
+        <div class="movie-card">
+            <img src="{poster_url}" alt="{title}">
+            <div><strong>{title} ({year})</strong></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Actual remove logic with Streamlit
+    if st.button("Remove", key=f"remove_{i}"):
+        st.session_state.favorite_movies.pop(i)
+        save_session({"favorite_movies": st.session_state.favorite_movies})
+        st.experimental_rerun()
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
