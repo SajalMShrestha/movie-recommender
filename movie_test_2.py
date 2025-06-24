@@ -19,84 +19,11 @@ from numpy.linalg import norm
 from numpy import mean, dot
 from sentence_transformers.util import cos_sim
 import uuid
-import firebase_admin
-from firebase_admin import credentials, firestore, initialize_app
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('stopwords')
-
-# Initialize Firebase Admin SDK with error handling
-db = None
-try:
-    # Check if Firebase credentials are available in secrets
-    if "firebase" in st.secrets:
-        firebase_config = st.secrets["firebase"]
-        
-        # Validate that all required fields are present
-        required_fields = [
-            "type", "project_id", "private_key_id", "private_key", 
-            "client_email", "client_id", "auth_uri", "token_uri", 
-            "auth_provider_x509_cert_url", "client_x509_cert_url"
-        ]
-        
-        missing_fields = [field for field in required_fields if field not in firebase_config]
-        
-        if missing_fields:
-            st.warning(f"⚠️ Missing Firebase configuration fields: {missing_fields}")
-            st.info("Firebase features will be disabled. Please configure Firebase credentials in your secrets.")
-        else:
-            # Create a temporary JSON file for Firebase credentials
-            import tempfile
-            import json as json_module
-            
-            # Prepare the credentials dictionary
-            cred_dict = {
-                "type": firebase_config["type"],
-                "project_id": firebase_config["project_id"],
-                "private_key_id": firebase_config["private_key_id"],
-                "private_key": firebase_config["private_key"],
-                "client_email": firebase_config["client_email"],
-                "client_id": firebase_config["client_id"],
-                "auth_uri": firebase_config["auth_uri"],
-                "token_uri": firebase_config["token_uri"],
-                "auth_provider_x509_cert_url": firebase_config["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": firebase_config["client_x509_cert_url"]
-            }
-            
-            # Create a temporary file with the credentials
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
-                json_module.dump(cred_dict, temp_file)
-                temp_file_path = temp_file.name
-            
-            try:
-                # Initialize Firebase using the temporary file
-                cred = credentials.Certificate(temp_file_path)
-                
-                # Initialize Firebase app only if not already initialized
-                if not firebase_admin._apps:
-                    initialize_app(cred)
-                
-                db = firestore.client()
-                st.success("✅ Firebase initialized successfully!")
-                
-            finally:
-                # Clean up the temporary file
-                import os
-                try:
-                    os.unlink(temp_file_path)
-                except:
-                    pass
-                    
-    else:
-        st.warning("⚠️ Firebase configuration not found in secrets.")
-        st.info("Firebase features will be disabled. To enable Firebase, add your credentials to .streamlit/secrets.toml")
-        
-except Exception as e:
-    st.error(f"❌ Firebase initialization failed: {str(e)}")
-    st.info("Firebase features will be disabled. Please check your configuration.")
-    db = None
 
 # TMDb setup
 tmdb = TMDb()
@@ -612,29 +539,23 @@ if 'favorite_movies' not in st.session_state:
     st.session_state.favorite_movies = []
 
 st.subheader("🎥 Your Selected Movies (5 max)")
+cols = st.columns(len(st.session_state.favorite_movies))
 
-# Safety check for columns - ensure we have a valid number of columns
-num_movies = len(st.session_state.favorite_movies)
-if num_movies > 0:
-    cols = st.columns(num_movies)
-    
-    for i, movie in enumerate(st.session_state.favorite_movies):
-        title = movie["title"]
-        year = movie["year"]
-        poster = movie.get("poster_path")
+for i, movie in enumerate(st.session_state.favorite_movies):
+    title = movie["title"]
+    year = movie["year"]
+    poster = movie.get("poster_path")
 
-        with cols[i]:
-            if poster:
-                st.image(f"https://image.tmdb.org/t/p/w200{poster}", use_column_width=True)
-            else:
-                st.text("No image")
-            st.markdown(f"**{title} ({year})**")
-            if st.button("Remove", key=f"remove_{i}"):
-                st.session_state.favorite_movies.pop(i)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
-                st.experimental_rerun()
-else:
-    st.info("No movies selected yet. Search and add movies above!")
+    with cols[i]:
+        if poster:
+            st.image(f"https://image.tmdb.org/t/p/w200{poster}", use_column_width=True)
+        else:
+            st.text("No image")
+        st.markdown(f"**{title} ({year})**")
+        if st.button("Remove", key=f"remove_{i}"):
+            st.session_state.favorite_movies.pop(i)
+            save_session({"favorite_movies": st.session_state.favorite_movies})
+            st.experimental_rerun()
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
@@ -664,41 +585,50 @@ if st.session_state.recommend_triggered:
     else:
         st.subheader("🌟 Your Top 10 Movie Recommendations")
 
-    def save_feedback_to_firestore():
-        if db is None:
-            st.error("❌ Firebase is not configured. Feedback cannot be saved.")
-            st.info("Please configure Firebase credentials in your .streamlit/secrets.toml file to enable feedback saving.")
-            return
-            
+    def save_feedback_to_csv():
+        feedback_rows = []
         favorite_snapshot = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
 
         for key, val in st.session_state.items():
             if key.startswith("feedback_obj_") and isinstance(val, dict):
                 movie_title = val["title"]
-                liked = val.get("liked")
-                response = val.get("response")
-                movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == movie_title), None)
+                movie_obj, embedding = None, None
+                score, similarity, source = None, None, "unknown"
 
-                if not movie_obj:
-                    continue
+                # Match the movie from stored candidates
+                for mid, (m, emb) in st.session_state.candidates.items():
+                    if m.title == movie_title:
+                        movie_obj, embedding = m, emb
+                        score = st.session_state.get(f"score_{m.id}")
+                        similarity = st.session_state.get(f"similarity_{m.id}")
+                        source = "tmdb_similar" if hasattr(m, "similar_to") else "trending"
+                        break
 
-                comment = val.get("comment", "")
-
-                doc_data = {
-                    "user_id": st.session_state.session_id,
-                    "timestamp": datetime.utcnow(),
+                feedback_rows.append({
+                    "session_id": st.session_state.session_id,
+                    "timestamp": datetime.now().isoformat(),
                     "movie_title": movie_title,
-                    "tmdb_movie_id": str(getattr(movie_obj, "id", "")),
-                    "liked": liked if liked is not None else False,
-                    "response": response,
-                    "comment": comment,
-                    "source": "tmdb_similar" if hasattr(movie_obj, "similar_to") else "trending",
-                    "user_favorites": favorite_snapshot
-                }
+                    "movie_id": getattr(movie_obj, "id", "N/A"),
+                    "response": val["response"],
+                    "liked": val.get("liked"),
+                    "recommendation_score": round(score, 4) if score is not None else None,
+                    "embedding_similarity_score": round(similarity, 4) if similarity is not None else None,
+                    "source": source,
+                    "user_favorites": ", ".join(favorite_snapshot)
+                })
 
-                db.collection("user_feedback").add(doc_data)
+        if feedback_rows:
+            log_file = "user_feedback_log.csv"
+            
+            if not os.path.exists(log_file):
+                pd.DataFrame(columns=[
+                    "session_id", "timestamp", "movie_title", "movie_id", "response", "liked",
+                    "recommendation_score", "embedding_similarity_score", "source", "user_favorites"
+                ]).to_csv(log_file, index=False)
 
-        st.success("✅ Feedback saved to Firestore!")
+            df = pd.DataFrame(feedback_rows)
+            df.to_csv(log_file, mode="a", header=False, index=False)
+            st.success("✅ Feedback saved!")
 
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
         movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == title), None)
@@ -733,29 +663,26 @@ if st.session_state.recommend_triggered:
             if response == "Already watched":
                 liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
 
-            # ✅ Optional text comment (appears below radios)
-            comment_key = f"comment_{movie_obj.id}"
-            comment = st.text_input("Optional feedback comment", key=comment_key)
-
             feedback_entry = {
                 "title": movie_obj.title,
                 "response": response,
-                "liked": liked,
-                "comment": comment
+                "liked": liked
             }
             st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
         st.markdown("---")
 
     if st.button("Submit Feedback"):
-        save_feedback_to_firestore()
+        save_feedback_to_csv()
         save_session({
             "favorite_movies": st.session_state.favorite_movies,
             "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
         })
 
-# --- Firebase Status ---
-if db is not None:
-    st.success("✅ Firebase is connected and ready to save feedback!")
+# --- Display Feedback Log ---
+if os.path.exists("user_feedback_log.json"):
+    st.success("✅ Feedback file found!")
+    with open("user_feedback_log.json", "r") as f:
+        feedback_data = json.load(f)
+        st.json(feedback_data)
 else:
-    st.info("ℹ️ Firebase is not configured. Feedback will be saved locally only.")
-    
+    st.error("⚠️ No feedback log file found in your project directory.")
