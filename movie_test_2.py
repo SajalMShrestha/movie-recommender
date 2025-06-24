@@ -47,25 +47,48 @@ try:
             st.warning(f"⚠️ Missing Firebase configuration fields: {missing_fields}")
             st.info("Firebase features will be disabled. Please configure Firebase credentials in your secrets.")
         else:
-            cred = credentials.Certificate({
+            # Create a temporary JSON file for Firebase credentials
+            import tempfile
+            import json as json_module
+            
+            # Prepare the credentials dictionary
+            cred_dict = {
                 "type": firebase_config["type"],
                 "project_id": firebase_config["project_id"],
                 "private_key_id": firebase_config["private_key_id"],
-                "private_key": firebase_config["private_key"].replace("\\n", "\n"),
+                "private_key": firebase_config["private_key"],
                 "client_email": firebase_config["client_email"],
                 "client_id": firebase_config["client_id"],
                 "auth_uri": firebase_config["auth_uri"],
                 "token_uri": firebase_config["token_uri"],
                 "auth_provider_x509_cert_url": firebase_config["auth_provider_x509_cert_url"],
                 "client_x509_cert_url": firebase_config["client_x509_cert_url"]
-            })
+            }
             
-            # Initialize Firebase app only if not already initialized
-            if not firebase_admin._apps:
-                initialize_app(cred)
+            # Create a temporary file with the credentials
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                json_module.dump(cred_dict, temp_file)
+                temp_file_path = temp_file.name
             
-            db = firestore.client()
-            st.success("✅ Firebase initialized successfully!")
+            try:
+                # Initialize Firebase using the temporary file
+                cred = credentials.Certificate(temp_file_path)
+                
+                # Initialize Firebase app only if not already initialized
+                if not firebase_admin._apps:
+                    initialize_app(cred)
+                
+                db = firestore.client()
+                st.success("✅ Firebase initialized successfully!")
+                
+            finally:
+                # Clean up the temporary file
+                import os
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
     else:
         st.warning("⚠️ Firebase configuration not found in secrets.")
         st.info("Firebase features will be disabled. To enable Firebase, add your credentials to .streamlit/secrets.toml")
@@ -730,12 +753,9 @@ if st.session_state.recommend_triggered:
             "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
         })
 
-# --- Display Feedback Log ---
-if os.path.exists("user_feedback_log.json"):
-    st.success("✅ Feedback file found!")
-    with open("user_feedback_log.json", "r") as f:
-        feedback_data = json.load(f)
-        st.json(feedback_data)
+# --- Firebase Status ---
+if db is not None:
+    st.success("✅ Firebase is connected and ready to save feedback!")
 else:
-    st.error("⚠️ No feedback log file found in your project directory.")
+    st.info("ℹ️ Firebase is not configured. Feedback will be saved locally only.")
     
