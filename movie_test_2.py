@@ -20,18 +20,30 @@ from numpy import mean, dot
 from sentence_transformers.util import cos_sim
 import uuid
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, initialize_app
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('stopwords')
 
-# Initialize Firebase Admin SDK once
-if not firebase_admin._apps:
-    cred = credentials.Certificate("your-firebase-adminsdk.json")  # 🔐 Use your own secret path
-    firebase_admin.initialize_app(cred)
+# Load Firebase credentials from secrets.toml
+firebase_config = st.secrets["firebase"]
 
+cred = credentials.Certificate({
+    "type": firebase_config["type"],
+    "project_id": firebase_config["project_id"],
+    "private_key_id": firebase_config["private_key_id"],
+    "private_key": firebase_config["private_key"].replace("\\n", "\n"),
+    "client_email": firebase_config["client_email"],
+    "client_id": firebase_config["client_id"],
+    "auth_uri": firebase_config["auth_uri"],
+    "token_uri": firebase_config["token_uri"],
+    "auth_provider_x509_cert_url": firebase_config["auth_provider_x509_cert_url"],
+    "client_x509_cert_url": firebase_config["client_x509_cert_url"]
+})
+
+initialize_app(cred)
 db = firestore.client()
 
 # TMDb setup
@@ -607,14 +619,16 @@ if st.session_state.recommend_triggered:
                 if not movie_obj:
                     continue
 
+                comment = val.get("comment", "")
+
                 doc_data = {
                     "user_id": st.session_state.session_id,
                     "timestamp": datetime.utcnow(),
                     "movie_title": movie_title,
                     "tmdb_movie_id": str(getattr(movie_obj, "id", "")),
-                    "comment": "",  # extend if you collect text input
                     "liked": liked if liked is not None else False,
                     "response": response,
+                    "comment": comment,
                     "source": "tmdb_similar" if hasattr(movie_obj, "similar_to") else "trending",
                     "user_favorites": favorite_snapshot
                 }
@@ -656,10 +670,15 @@ if st.session_state.recommend_triggered:
             if response == "Already watched":
                 liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
 
+            # ✅ Optional text comment (appears below radios)
+            comment_key = f"comment_{movie_obj.id}"
+            comment = st.text_input("Optional feedback comment", key=comment_key)
+
             feedback_entry = {
                 "title": movie_obj.title,
                 "response": response,
-                "liked": liked
+                "liked": liked,
+                "comment": comment
             }
             st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
         st.markdown("---")
