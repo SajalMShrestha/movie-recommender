@@ -27,24 +27,53 @@ nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('stopwords')
 
-# Load Firebase credentials from secrets.toml
-firebase_config = st.secrets["firebase"]
-
-cred = credentials.Certificate({
-    "type": firebase_config["type"],
-    "project_id": firebase_config["project_id"],
-    "private_key_id": firebase_config["private_key_id"],
-    "private_key": firebase_config["private_key"].replace("\\n", "\n"),
-    "client_email": firebase_config["client_email"],
-    "client_id": firebase_config["client_id"],
-    "auth_uri": firebase_config["auth_uri"],
-    "token_uri": firebase_config["token_uri"],
-    "auth_provider_x509_cert_url": firebase_config["auth_provider_x509_cert_url"],
-    "client_x509_cert_url": firebase_config["client_x509_cert_url"]
-})
-
-initialize_app(cred)
-db = firestore.client()
+# Initialize Firebase Admin SDK with error handling
+db = None
+try:
+    # Check if Firebase credentials are available in secrets
+    if "firebase" in st.secrets:
+        firebase_config = st.secrets["firebase"]
+        
+        # Validate that all required fields are present
+        required_fields = [
+            "type", "project_id", "private_key_id", "private_key", 
+            "client_email", "client_id", "auth_uri", "token_uri", 
+            "auth_provider_x509_cert_url", "client_x509_cert_url"
+        ]
+        
+        missing_fields = [field for field in required_fields if field not in firebase_config]
+        
+        if missing_fields:
+            st.warning(f"⚠️ Missing Firebase configuration fields: {missing_fields}")
+            st.info("Firebase features will be disabled. Please configure Firebase credentials in your secrets.")
+        else:
+            cred = credentials.Certificate({
+                "type": firebase_config["type"],
+                "project_id": firebase_config["project_id"],
+                "private_key_id": firebase_config["private_key_id"],
+                "private_key": firebase_config["private_key"].replace("\\n", "\n"),
+                "client_email": firebase_config["client_email"],
+                "client_id": firebase_config["client_id"],
+                "auth_uri": firebase_config["auth_uri"],
+                "token_uri": firebase_config["token_uri"],
+                "auth_provider_x509_cert_url": firebase_config["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": firebase_config["client_x509_cert_url"]
+            })
+            
+            # Initialize Firebase app only if not already initialized
+            if not firebase_admin._apps:
+                initialize_app(cred)
+            
+            db = firestore.client()
+            st.success("✅ Firebase initialized successfully!")
+    else:
+        st.warning("⚠️ Firebase configuration not found in secrets.")
+        st.info("Firebase features will be disabled. To enable Firebase, add your credentials to .streamlit/secrets.toml")
+        
+except Exception as e:
+    st.error(f"❌ Firebase initialization failed: {str(e)}")
+    st.info("Firebase features will be disabled. Please check your configuration.")
+    db = None
 
 # TMDb setup
 tmdb = TMDb()
@@ -607,6 +636,11 @@ if st.session_state.recommend_triggered:
         st.subheader("🌟 Your Top 10 Movie Recommendations")
 
     def save_feedback_to_firestore():
+        if db is None:
+            st.error("❌ Firebase is not configured. Feedback cannot be saved.")
+            st.info("Please configure Firebase credentials in your .streamlit/secrets.toml file to enable feedback saving.")
+            return
+            
         favorite_snapshot = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
 
         for key, val in st.session_state.items():
@@ -698,3 +732,4 @@ if os.path.exists("user_feedback_log.json"):
         st.json(feedback_data)
 else:
     st.error("⚠️ No feedback log file found in your project directory.")
+    
