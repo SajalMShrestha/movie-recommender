@@ -537,33 +537,31 @@ if search_results:
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
 
-# Inject styles and open the grid container
-st.markdown("""
-    <style>
-    .movie-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 20px;
-        justify-content: flex-start;
-        margin-bottom: 20px;
-    }
-    .movie-card {
-        width: 140px;
-        text-align: center;
-    }
-    .movie-card img {
-        height: 200px;
-        width: 120px;
-        object-fit: cover;
-        border-radius: 6px;
-    }
-    </style>
-    <div class="movie-grid">
-""", unsafe_allow_html=True)
+# Build a single HTML string for all cards
+movie_cards_html = """
+<style>
+.movie-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: flex-start;
+    margin-bottom: 20px;
+}
+.movie-card {
+    width: 140px;
+    text-align: center;
+}
+.movie-card img {
+    height: 200px;
+    width: 120px;
+    object-fit: cover;
+    border-radius: 6px;
+}
+</style>
+<div class="movie-grid">
+"""
 
-# Render all posters inline inside a single HTML block
-movie_cards_html = ""
-for i, movie in enumerate(st.session_state.favorite_movies):
+for movie in st.session_state.favorite_movies:
     title = movie["title"]
     year = movie["year"]
     poster = movie.get("poster_path")
@@ -576,12 +574,14 @@ for i, movie in enumerate(st.session_state.favorite_movies):
         </div>
     """
 
-st.markdown(movie_cards_html, unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)  # close grid
+movie_cards_html += "</div>"
 
-# Add buttons after grid (independent of layout)
+# Render all cards at once
+st.markdown(movie_cards_html, unsafe_allow_html=True)
+
+# Buttons rendered separately
 for i, movie in enumerate(st.session_state.favorite_movies):
-    if st.button("Remove", key=f"remove_{i}"):
+    if st.button(f"Remove {movie['title']}", key=f"remove_{i}"):
         st.session_state.favorite_movies.pop(i)
         save_session({"favorite_movies": st.session_state.favorite_movies})
         st.experimental_rerun()
