@@ -537,14 +537,15 @@ if search_results:
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
 
-st.markdown(
-    """
+# Inject styles and open the grid container
+st.markdown("""
     <style>
     .movie-grid {
         display: flex;
         flex-wrap: wrap;
         gap: 20px;
         justify-content: flex-start;
+        margin-bottom: 20px;
     }
     .movie-card {
         width: 140px;
@@ -556,36 +557,34 @@ st.markdown(
         object-fit: cover;
         border-radius: 6px;
     }
-    .remove-button {
-        margin-top: 5px;
-    }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+    <div class="movie-grid">
+""", unsafe_allow_html=True)
 
-st.markdown('<div class="movie-grid">', unsafe_allow_html=True)
-
+# Render all posters inline inside a single HTML block
+movie_cards_html = ""
 for i, movie in enumerate(st.session_state.favorite_movies):
     title = movie["title"]
     year = movie["year"]
     poster = movie.get("poster_path")
     poster_url = f"https://image.tmdb.org/t/p/w200{poster}" if poster else ""
 
-    st.markdown(f"""
+    movie_cards_html += f"""
         <div class="movie-card">
             <img src="{poster_url}" alt="{title}">
             <div><strong>{title} ({year})</strong></div>
         </div>
-    """, unsafe_allow_html=True)
+    """
 
-    # Actual remove logic with Streamlit
+st.markdown(movie_cards_html, unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)  # close grid
+
+# Add buttons after grid (independent of layout)
+for i, movie in enumerate(st.session_state.favorite_movies):
     if st.button("Remove", key=f"remove_{i}"):
         st.session_state.favorite_movies.pop(i)
         save_session({"favorite_movies": st.session_state.favorite_movies})
         st.experimental_rerun()
-
-st.markdown('</div>', unsafe_allow_html=True)
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
