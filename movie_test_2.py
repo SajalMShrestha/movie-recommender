@@ -546,7 +546,7 @@ if st.session_state.favorite_movies:
 
         with cols[i]:
             if poster:
-                st.image(f"https://image.tmdb.org/t/p/w200{poster}", use_column_width=True)
+                st.image(f"https://image.tmdb.org/t/p/w200{poster}", width=120)
             else:
                 st.text("No image")
             st.markdown(f"**{title} ({year})**")
@@ -679,10 +679,9 @@ if st.session_state.recommend_triggered:
         })
 
 # --- Display Feedback Log ---
-if os.path.exists("user_feedback_log.json"):
+if os.path.exists("user_feedback_log.csv"):
     st.success("✅ Feedback file found!")
-    with open("user_feedback_log.json", "r") as f:
-        feedback_data = json.load(f)
-        st.json(feedback_data)
+    df = pd.read_csv("user_feedback_log.csv")
+    st.dataframe(df.tail(10))  # Show the last 10 rows for quick inspection
 else:
-    st.error("⚠️ No feedback log file found in your project directory.")
+    st.info("📝 Feedback log not found yet. Submit feedback after getting recommendations.")
