@@ -7,6 +7,7 @@ __pycache__/
 .venv/
 env/
 venv/
+venv311/
 
 # Streamlit
 .streamlit/secrets.toml
@@ -22,5 +23,7 @@ session_state.json
 
 # Credentials
 firebase-service-account.json
- 
- 
+firebase-adminsdk.json
+
+# MacOS metadata files (optional, but good hygiene)
+.DS_Store
