@@ -579,7 +579,7 @@ st.markdown(movie_cards_html, unsafe_allow_html=True)
 
 # Buttons rendered separately
 for i, movie in enumerate(st.session_state.favorite_movies):
-    if st.button(f"Remove {movie['title']}", key=f"remove_{i}"):
+    if st.button("Remove", key=f"remove_{i}"):
         st.session_state.favorite_movies.pop(i)
         save_session({"favorite_movies": st.session_state.favorite_movies})
         st.experimental_rerun()
