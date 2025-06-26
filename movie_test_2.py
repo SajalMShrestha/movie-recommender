@@ -577,9 +577,6 @@ movie_cards_html += "</div>"
 # Render all cards at once
 st.markdown(movie_cards_html, unsafe_allow_html=True)
 
-# Debug: Test if HTML rendering works
-st.markdown('<div style="background-color: red; color: white; padding: 10px;">HTML Test</div>', unsafe_allow_html=True)
-
 # Buttons rendered separately
 for i, movie in enumerate(st.session_state.favorite_movies):
     if st.button(f"Remove {movie['title']}", key=f"remove_{i}"):
