@@ -12,6 +12,7 @@ import pandas as pd
 import time
 import json
 import os
+import csv
 from collections import Counter
 from sentence_transformers import SentenceTransformer
 import numpy as np
@@ -70,6 +71,11 @@ saved_state = load_session()
 # Add a persistent UUID for the session
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
+
+# Initialize feedback system
+initialize_feedback_csv()
+numeric_id, session_uuid = get_or_create_numeric_session_id()
+st.session_state.numeric_session_id = numeric_id
 
 if "favorite_movies" not in st.session_state:
     st.session_state.favorite_movies = saved_state.get("favorite_movies", [])
@@ -613,51 +619,6 @@ if st.session_state.recommend_triggered:
     else:
         st.subheader("🌟 Your Top 10 Movie Recommendations")
 
-    def save_feedback_to_csv():
-        feedback_rows = []
-        favorite_snapshot = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-
-        for key, val in st.session_state.items():
-            if key.startswith("feedback_obj_") and isinstance(val, dict):
-                movie_title = val["title"]
-                movie_obj, embedding = None, None
-                score, similarity, source = None, None, "unknown"
-
-                # Match the movie from stored candidates
-                for mid, (m, emb) in st.session_state.candidates.items():
-                    if m.title == movie_title:
-                        movie_obj, embedding = m, emb
-                        score = st.session_state.get(f"score_{m.id}")
-                        similarity = st.session_state.get(f"similarity_{m.id}")
-                        source = "tmdb_similar" if hasattr(m, "similar_to") else "trending"
-                        break
-
-                feedback_rows.append({
-                    "session_id": st.session_state.session_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "movie_title": movie_title,
-                    "movie_id": getattr(movie_obj, "id", "N/A"),
-                    "response": val["response"],
-                    "liked": val.get("liked"),
-                    "recommendation_score": round(score, 4) if score is not None else None,
-                    "embedding_similarity_score": round(similarity, 4) if similarity is not None else None,
-                    "source": source,
-                    "user_favorites": ", ".join(favorite_snapshot)
-                })
-
-        if feedback_rows:
-            log_file = "user_feedback_log.csv"
-            
-            if not os.path.exists(log_file):
-                pd.DataFrame(columns=[
-                    "session_id", "timestamp", "movie_title", "movie_id", "response", "liked",
-                    "recommendation_score", "embedding_similarity_score", "source", "user_favorites"
-                ]).to_csv(log_file, index=False)
-
-            df = pd.DataFrame(feedback_rows)
-            df.to_csv(log_file, mode="a", header=False, index=False)
-            st.success("✅ Feedback saved!")
-
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
         movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == title), None)
         if movie_obj is None:
@@ -668,43 +629,35 @@ if st.session_state.recommend_triggered:
         except:
             pass
         st.markdown(f"### {idx}. {movie_obj.title} ({release_year})")
-        col1, col2, col3 = st.columns([1, 2, 1])
+        st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else None, width=150)
+        st.write(movie_obj.overview or "No description available.")
 
-        with col1:
-            poster_url = f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else None
-            if poster_url:
-                st.image(poster_url, width=150)
-            else:
-                st.text("No image available")
+        watched_status = st.radio(
+            "Would you watch this?",
+            ["Yes", "No", "Already watched"],
+            key=f"watched_{idx}"
+        )
 
-        with col2:
-            overview = movie_obj.overview or "No description available."
-            short_desc = " ".join(overview.split()[:50]) + ("..." if len(overview.split())>50 else "")
-            st.write(short_desc)
+        liked_status = ""
+        if watched_status == "Already watched":
+            liked_status = st.radio(
+                "Did you like it?",
+                ["Yes", "No"],
+                key=f"liked_{idx}"
+            )
 
-        with col3:
-            fb_key = f"feedback_{movie_obj.id}"
-            response = st.radio("Would you watch this?", ["Yes", "No", "Already watched"], key=fb_key, index=None)
-
-            liked = None
-            liked_key = f"liked_{movie_obj.id}"
-            if response == "Already watched":
-                liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
-
-            feedback_entry = {
-                "title": movie_obj.title,
-                "response": response,
-                "liked": liked
-            }
-            st.session_state[f"feedback_obj_{movie_obj.id}"] = feedback_entry
+        if st.button("Submit", key=f"submit_{idx}"):
+            save_feedback(
+                st.session_state.numeric_session_id,
+                st.session_state.session_id,
+                movie_obj.id,
+                movie_obj.title,
+                watched_status,
+                liked_status
+            )
+            st.success("Response saved!")
+        
         st.markdown("---")
-
-    if st.button("Submit Feedback"):
-        save_feedback_to_csv()
-        save_session({
-            "favorite_movies": st.session_state.favorite_movies,
-            "feedback": {k: v for k, v in st.session_state.items() if k.startswith("feedback_")}
-        })
 
 # --- Display Feedback Log ---
 if os.path.exists("user_feedback_log.csv"):
@@ -713,3 +666,52 @@ if os.path.exists("user_feedback_log.csv"):
     st.dataframe(df.tail(10))  # Show the last 10 rows for quick inspection
 else:
     st.info("📝 Feedback log not found yet. Submit feedback after getting recommendations.")
+
+FEEDBACK_FILE = "user_feedback.csv"
+
+def initialize_feedback_csv():
+    if not os.path.exists(FEEDBACK_FILE):
+        with open(FEEDBACK_FILE, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                "numeric_session_id",
+                "session_id",
+                "movie_id",
+                "movie_title",
+                "watched_status",
+                "liked_status",
+                "timestamp"
+            ])
+
+SESSION_MAP_FILE = "session_map.csv"
+
+def get_or_create_numeric_session_id():
+    if not os.path.exists(SESSION_MAP_FILE):
+        pd.DataFrame(columns=["numeric_session_id", "session_id"]).to_csv(SESSION_MAP_FILE, index=False)
+
+    session_id = st.session_state.get("session_id", str(uuid.uuid4()))
+    st.session_state["session_id"] = session_id
+
+    df = pd.read_csv(SESSION_MAP_FILE)
+    if session_id in df["session_id"].values:
+        numeric_id = df[df["session_id"] == session_id]["numeric_session_id"].values[0]
+    else:
+        numeric_id = df["numeric_session_id"].max() + 1 if not df.empty else 1
+        new_entry = pd.DataFrame([[numeric_id, session_id]], columns=["numeric_session_id", "session_id"])
+        df = pd.concat([df, new_entry], ignore_index=True)
+        df.to_csv(SESSION_MAP_FILE, index=False)
+
+    return numeric_id, session_id
+
+def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status, liked_status):
+    with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            numeric_id,
+            session_id,
+            movie_id,
+            movie_title,
+            watched_status,
+            liked_status,
+            datetime.utcnow().isoformat()
+        ])
