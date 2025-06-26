@@ -21,6 +21,55 @@ from numpy import mean, dot
 from sentence_transformers.util import cos_sim
 import uuid
 
+# Feedback system constants and functions
+FEEDBACK_FILE = "user_feedback.csv"
+SESSION_MAP_FILE = "session_map.csv"
+
+def initialize_feedback_csv():
+    if not os.path.exists(FEEDBACK_FILE):
+        with open(FEEDBACK_FILE, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                "numeric_session_id",
+                "session_id",
+                "movie_id",
+                "movie_title",
+                "watched_status",
+                "liked_status",
+                "timestamp"
+            ])
+
+def get_or_create_numeric_session_id():
+    if not os.path.exists(SESSION_MAP_FILE):
+        pd.DataFrame(columns=["numeric_session_id", "session_id"]).to_csv(SESSION_MAP_FILE, index=False)
+
+    session_id = st.session_state.get("session_id", str(uuid.uuid4()))
+    st.session_state["session_id"] = session_id
+
+    df = pd.read_csv(SESSION_MAP_FILE)
+    if session_id in df["session_id"].values:
+        numeric_id = df[df["session_id"] == session_id]["numeric_session_id"].values[0]
+    else:
+        numeric_id = df["numeric_session_id"].max() + 1 if not df.empty else 1
+        new_entry = pd.DataFrame([[numeric_id, session_id]], columns=["numeric_session_id", "session_id"])
+        df = pd.concat([df, new_entry], ignore_index=True)
+        df.to_csv(SESSION_MAP_FILE, index=False)
+
+    return numeric_id, session_id
+
+def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status, liked_status):
+    with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            numeric_id,
+            session_id,
+            movie_id,
+            movie_title,
+            watched_status,
+            liked_status,
+            datetime.utcnow().isoformat()
+        ])
+
 nltk.download('vader_lexicon')
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
@@ -666,52 +715,3 @@ if os.path.exists("user_feedback_log.csv"):
     st.dataframe(df.tail(10))  # Show the last 10 rows for quick inspection
 else:
     st.info("📝 Feedback log not found yet. Submit feedback after getting recommendations.")
-
-FEEDBACK_FILE = "user_feedback.csv"
-
-def initialize_feedback_csv():
-    if not os.path.exists(FEEDBACK_FILE):
-        with open(FEEDBACK_FILE, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            writer.writerow([
-                "numeric_session_id",
-                "session_id",
-                "movie_id",
-                "movie_title",
-                "watched_status",
-                "liked_status",
-                "timestamp"
-            ])
-
-SESSION_MAP_FILE = "session_map.csv"
-
-def get_or_create_numeric_session_id():
-    if not os.path.exists(SESSION_MAP_FILE):
-        pd.DataFrame(columns=["numeric_session_id", "session_id"]).to_csv(SESSION_MAP_FILE, index=False)
-
-    session_id = st.session_state.get("session_id", str(uuid.uuid4()))
-    st.session_state["session_id"] = session_id
-
-    df = pd.read_csv(SESSION_MAP_FILE)
-    if session_id in df["session_id"].values:
-        numeric_id = df[df["session_id"] == session_id]["numeric_session_id"].values[0]
-    else:
-        numeric_id = df["numeric_session_id"].max() + 1 if not df.empty else 1
-        new_entry = pd.DataFrame([[numeric_id, session_id]], columns=["numeric_session_id", "session_id"])
-        df = pd.concat([df, new_entry], ignore_index=True)
-        df.to_csv(SESSION_MAP_FILE, index=False)
-
-    return numeric_id, session_id
-
-def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status, liked_status):
-    with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file)
-        writer.writerow([
-            numeric_id,
-            session_id,
-            movie_id,
-            movie_title,
-            watched_status,
-            liked_status,
-            datetime.utcnow().isoformat()
-        ])
