@@ -559,18 +559,25 @@ movie_cards_html = """
 <div class="movie-grid">
 """
 
-for movie in st.session_state.favorite_movies:
+for i, movie in enumerate(st.session_state.favorite_movies):
     title = movie["title"]
     year = movie["year"]
     poster = movie.get("poster_path")
 
-    movie_cards_html += '<div class="movie-card">'
+    movie_cards_html += f'<div class="movie-card">'
     if poster:
         poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
         movie_cards_html += f'<img src="{poster_url}" alt="{title}">'
     else:
         movie_cards_html += '<div>No image available</div>'
-    movie_cards_html += f'<div><strong>{title} ({year})</strong></div></div>'
+
+    movie_cards_html += f'<div><strong>{title} ({year})</strong></div>'
+    movie_cards_html += f'''
+        <form action="" method="post">
+            <button type="submit" name="remove_index" value="{i}">Remove</button>
+        </form>
+    '''
+    movie_cards_html += '</div>'
 
 movie_cards_html += "</div>"
 
@@ -578,12 +585,6 @@ movie_cards_html += "</div>"
 st.markdown(movie_cards_html, unsafe_allow_html=True)
 
 # Buttons rendered separately
-for i, movie in enumerate(st.session_state.favorite_movies):
-    if st.button("Remove", key=f"remove_{i}"):
-        st.session_state.favorite_movies.pop(i)
-        save_session({"favorite_movies": st.session_state.favorite_movies})
-        st.experimental_rerun()
-
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
     save_session({"favorite_movies": []})
