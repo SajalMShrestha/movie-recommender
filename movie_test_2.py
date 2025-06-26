@@ -535,56 +535,27 @@ if search_results:
             st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
+if 'favorite_movies' not in st.session_state:
+    st.session_state.favorite_movies = []
+
 st.subheader("🎥 Your Selected Movies (5 max)")
+cols = st.columns(len(st.session_state.favorite_movies))
 
-# Build a single HTML string for all cards
-movie_cards_html = """
-<style>
-.movie-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    justify-content: flex-start;
-    margin-bottom: 20px;
-}
-.movie-card {
-    width: 140px;
-    text-align: center;
-}
-.movie-card img {
-    height: 200px;
-    width: 120px;
-    object-fit: cover;
-    border-radius: 6px;
-}
-</style>
-<div class="movie-grid">
-"""
-
-for movie in st.session_state.favorite_movies:
+for i, movie in enumerate(st.session_state.favorite_movies):
     title = movie["title"]
     year = movie["year"]
     poster = movie.get("poster_path")
-    poster_url = f"https://image.tmdb.org/t/p/w200{poster}" if poster else ""
 
-    movie_cards_html += f"""
-        <div class="movie-card">
-            <img src="{poster_url}" alt="{title}">
-            <div><strong>{title} ({year})</strong></div>
-        </div>
-    """
-
-movie_cards_html += "</div>"
-
-# Render all cards at once
-st.markdown(movie_cards_html, unsafe_allow_html=True)
-
-# Buttons rendered separately
-for i, movie in enumerate(st.session_state.favorite_movies):
-    if st.button(f"Remove {movie['title']}", key=f"remove_{i}"):
-        st.session_state.favorite_movies.pop(i)
-        save_session({"favorite_movies": st.session_state.favorite_movies})
-        st.experimental_rerun()
+    with cols[i]:
+        if poster:
+            st.image(f"https://image.tmdb.org/t/p/w200{poster}", use_column_width=True)
+        else:
+            st.text("No image")
+        st.markdown(f"**{title} ({year})**")
+        if st.button("Remove", key=f"remove_{i}"):
+            st.session_state.favorite_movies.pop(i)
+            save_session({"favorite_movies": st.session_state.favorite_movies})
+            st.experimental_rerun()
 
 if st.button("❌ Clear All"):
     st.session_state.favorite_movies = []
@@ -708,9 +679,10 @@ if st.session_state.recommend_triggered:
         })
 
 # --- Display Feedback Log ---
-if os.path.exists("user_feedback_log.csv"):
+if os.path.exists("user_feedback_log.json"):
     st.success("✅ Feedback file found!")
-    df = pd.read_csv("user_feedback_log.csv")
-    st.dataframe(df.tail(10))  # Show the last 10 rows for quick inspection
+    with open("user_feedback_log.json", "r") as f:
+        feedback_data = json.load(f)
+        st.json(feedback_data)
 else:
-    st.info("📝 Feedback log not found yet. Submit feedback after getting recommendations.")
+    st.error("⚠️ No feedback log file found in your project directory.")
