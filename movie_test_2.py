@@ -564,25 +564,19 @@ for movie in st.session_state.favorite_movies:
     year = movie["year"]
     poster = movie.get("poster_path")
 
-    movie_cards_html += f"""
-        <div class="movie-card">
-    """
-
     if poster:
         poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
-        movie_cards_html += f"""<img src="{poster_url}" alt="{title}">"""
+        movie_cards_html += f'<div class="movie-card"><img src="{poster_url}" alt="{title}"><div><strong>{title} ({year})</strong></div></div>'
     else:
-        movie_cards_html += f"""<div>No image available</div>"""
-
-    movie_cards_html += f"""
-        <div><strong>{title} ({year})</strong></div>
-        </div>
-    """
+        movie_cards_html += f'<div class="movie-card"><div>No image available</div><div><strong>{title} ({year})</strong></div></div>'
 
 movie_cards_html += "</div>"
 
 # Render all cards at once
 st.markdown(movie_cards_html, unsafe_allow_html=True)
+
+# Debug: Test if HTML rendering works
+st.markdown('<div style="background-color: red; color: white; padding: 10px;">HTML Test</div>', unsafe_allow_html=True)
 
 # Buttons rendered separately
 for i, movie in enumerate(st.session_state.favorite_movies):
