@@ -563,12 +563,19 @@ for movie in st.session_state.favorite_movies:
     title = movie["title"]
     year = movie["year"]
     poster = movie.get("poster_path")
-    poster_url = f"https://image.tmdb.org/t/p/w200{poster}" if poster else ""
 
     movie_cards_html += f"""
         <div class="movie-card">
-            <img src="{poster_url}" alt="{title}">
-            <div><strong>{title} ({year})</strong></div>
+    """
+
+    if poster:
+        poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
+        movie_cards_html += f"""<img src="{poster_url}" alt="{title}">"""
+    else:
+        movie_cards_html += f"""<div>No image available</div>"""
+
+    movie_cards_html += f"""
+        <div><strong>{title} ({year})</strong></div>
         </div>
     """
 
