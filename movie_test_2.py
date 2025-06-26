@@ -668,6 +668,9 @@ if st.session_state.recommend_triggered:
     else:
         st.subheader("🌟 Your Top 10 Movie Recommendations")
 
+    # 1. Create placeholders and gather all responses in a dictionary
+    user_feedback = {}
+
     for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
         movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == title), None)
         if movie_obj is None:
@@ -681,34 +684,38 @@ if st.session_state.recommend_triggered:
         st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else None, width=150)
         st.write(movie_obj.overview or "No description available.")
 
-        watched_status = st.radio(
-            "Would you watch this?",
-            ["Yes", "No", "Already watched"],
-            key=f"watched_{idx}",
-            index=None
-        )
+        fb_key = f"watch_{idx}"
+        liked_key = f"liked_{idx}"
 
-        liked_status = ""
-        if watched_status == "Already watched":
-            liked_status = st.radio(
-                "Did you like it?",
-                ["Yes", "No"],
-                key=f"liked_{idx}",
-                index=None
-            )
+        response = st.radio("Would you watch this?", ["Yes", "No", "Already watched"], key=fb_key, index=None)
 
-        if st.button("Submit", key=f"submit_{idx}"):
-            save_feedback(
-                st.session_state.numeric_session_id,
-                st.session_state.session_id,
-                movie_obj.id,
-                movie_obj.title,
-                watched_status,
-                liked_status
-            )
-            st.success("Response saved!")
+        liked = None
+        if response == "Already watched":
+            liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
+
+        user_feedback[idx] = {
+            "movie": movie_obj.title,
+            "movie_id": movie_obj.id,
+            "response": response,
+            "liked": liked,
+        }
         
         st.markdown("---")
+
+    # 2. Submit button at the end only
+    if st.button("Submit All Responses"):
+        # Store all responses in CSV
+        for index, feedback in user_feedback.items():
+            if feedback["response"]:  # Only save if user provided a response
+                save_feedback(
+                    st.session_state.numeric_session_id,
+                    st.session_state.session_id,
+                    feedback["movie_id"],
+                    feedback["movie"],
+                    feedback["response"],
+                    feedback["liked"] or ""
+                )
+        st.success("Thank you! Your responses have been recorded.")
 
 # --- Display Feedback Log ---
 if os.path.exists("user_feedback_log.csv"):
