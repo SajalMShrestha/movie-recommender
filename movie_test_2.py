@@ -541,17 +541,17 @@ movie_cards_html = """
 .movie-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 0px;
+    gap: 2px;
     justify-content: flex-start;
     margin-bottom: 20px;
 }
 .movie-card {
-    width: 140px;
+    width: 120px;
     text-align: center;
 }
 .movie-card img {
-    height: 200px;
-    width: 120px;
+    height: 180px;
+    width: 100%;
     object-fit: cover;
     border-radius: 6px;
 }
