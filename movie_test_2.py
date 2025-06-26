@@ -541,7 +541,7 @@ movie_cards_html = """
 .movie-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px;
+    gap: 0.5px;
     justify-content: flex-start;
     margin-bottom: 20px;
 }
