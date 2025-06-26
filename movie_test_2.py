@@ -518,20 +518,18 @@ if search_results:
     if selected_movie and st.button("Add Movie"):
         clean_title = selected_label.split(" (", 1)[0]
         existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+        
         if len(st.session_state.favorite_movies) >= 5:
             st.warning("You can only add up to 5 movies. Please remove some movies first.")
         elif clean_title not in existing_titles:
             st.session_state.favorite_movies.append({
                 "title": clean_title,
                 "year": selected_label.split("(", 1)[1].replace(")", "") if "(" in selected_label else "",
-                "poster_path": selected_movie.get("poster_path")
+                "poster_path": selected_movie.get("poster_path", "")
             })
             save_session({"favorite_movies": st.session_state.favorite_movies})
-            # ✅ Show the poster *after* Add Movie is clicked
-            if selected_movie['poster_path']:
-                st.image(f"https://image.tmdb.org/t/p/w300{selected_movie['poster_path']}", width=150)
-            else:
-                st.text("No image available")
+            st.toast(f"✅ Added {clean_title}")
+            time.sleep(0.3)  # Optional: smooth UX
             st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
