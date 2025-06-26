@@ -684,7 +684,8 @@ if st.session_state.recommend_triggered:
         watched_status = st.radio(
             "Would you watch this?",
             ["Yes", "No", "Already watched"],
-            key=f"watched_{idx}"
+            key=f"watched_{idx}",
+            index=None
         )
 
         liked_status = ""
@@ -692,7 +693,8 @@ if st.session_state.recommend_triggered:
             liked_status = st.radio(
                 "Did you like it?",
                 ["Yes", "No"],
-                key=f"liked_{idx}"
+                key=f"liked_{idx}",
+                index=None
             )
 
         if st.button("Submit", key=f"submit_{idx}"):
