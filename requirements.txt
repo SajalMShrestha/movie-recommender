@@ -8,3 +8,5 @@ requests==2.31.0
 pandas==2.2.0
 textstat
 sentence-transformers
+gspread
+oauth2client
