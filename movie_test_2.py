@@ -20,6 +20,8 @@ from numpy.linalg import norm
 from numpy import mean, dot
 from sentence_transformers.util import cos_sim
 import uuid
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -69,6 +71,29 @@ def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status,
             liked_status,
             datetime.utcnow().isoformat()
         ])
+
+# Set up credentials using streamlit secrets
+def get_gsheet_client():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+    client = gspread.authorize(creds)
+    return client
+
+# Append a row of user feedback
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_title, would_watch, liked_if_seen):
+    sheet_name = "user_feedback"  # Your Google Sheet name
+    client = get_gsheet_client()
+    sheet = client.open(sheet_name).sheet1  # Use first worksheet
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    sheet.append_row([
+        numeric_session_id,
+        uuid_session_id,
+        movie_title,
+        would_watch,
+        liked_if_seen,
+        timestamp
+    ])
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
@@ -704,19 +729,18 @@ if st.session_state.recommend_triggered:
 
     # 2. Submit button at the end only
     if st.button("Submit All Responses"):
-        # Store all responses in CSV
+        # Store all responses in Google Sheet
         st.write("Saving to:", os.path.abspath(FEEDBACK_FILE))
         for index, feedback in user_feedback.items():
             if feedback["response"]:  # Only save if user provided a response
-                save_feedback(
-                    st.session_state.numeric_session_id,
-                    st.session_state.session_id,
-                    feedback["movie_id"],
-                    feedback["movie"],
-                    feedback["response"],
-                    feedback["liked"] or ""
+                record_feedback_to_sheet(
+                    numeric_session_id=st.session_state.numeric_session_id,
+                    uuid_session_id=st.session_state.session_id,
+                    movie_title=feedback["movie"],
+                    would_watch=feedback["response"],
+                    liked_if_seen=feedback["liked"] or ""
                 )
-        st.success("Thank you! Your responses have been recorded.")
+        st.success("Feedback saved!")
 
 # --- Display Feedback Log ---
 if os.path.exists("user_feedback_log.csv"):
