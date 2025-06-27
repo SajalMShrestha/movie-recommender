@@ -21,7 +21,7 @@ from numpy import mean, dot
 from sentence_transformers.util import cos_sim
 import uuid
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -75,7 +75,7 @@ def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status,
 # Set up credentials using streamlit secrets
 def get_gsheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
     client = gspread.authorize(creds)
     return client
 
