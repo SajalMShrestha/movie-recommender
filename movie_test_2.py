@@ -74,26 +74,73 @@ def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status,
 
 # Set up credentials using streamlit secrets
 def get_gsheet_client():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-    client = gspread.authorize(creds)
-    return client
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        
+        # Check if the secret exists
+        if "gcp_service_account" not in st.secrets:
+            st.error("❌ Google Cloud service account credentials not found in Streamlit secrets")
+            return None
+            
+        # Debug: Check the structure of the credentials
+        creds_dict = st.secrets["gcp_service_account"]
+        if not isinstance(creds_dict, dict):
+            st.error("❌ Service account credentials must be a dictionary")
+            return None
+            
+        required_keys = ["type", "project_id", "private_key_id", "private_key", "client_email"]
+        missing_keys = [key for key in required_keys if key not in creds_dict]
+        if missing_keys:
+            st.error(f"❌ Missing required keys in service account: {missing_keys}")
+            return None
+        
+        # Fix private key format - convert literal \n to actual newlines
+        private_key = creds_dict.get("private_key", "")
+        if "\\n" in private_key:
+            private_key = private_key.replace("\\n", "\n")
+            creds_dict["private_key"] = private_key
+        
+        # Debug: Check private key format
+        if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
+            st.error("❌ Private key is not in correct PEM format")
+            st.info("💡 Make sure your private key starts with '-----BEGIN PRIVATE KEY-----'")
+            return None
+            
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        client = gspread.authorize(creds)
+        return client
+        
+    except Exception as e:
+        st.error(f"❌ Error setting up Google Sheets client: {str(e)}")
+        st.info("💡 This usually means your service account JSON is corrupted or improperly formatted.")
+        return None
 
 # Append a row of user feedback
 def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_title, would_watch, liked_if_seen):
-    sheet_name = "user_feedback"  # Your Google Sheet name
-    client = get_gsheet_client()
-    sheet = client.open(sheet_name).sheet1  # Use first worksheet
+    try:
+        sheet_name = "user_feedback"  # Your Google Sheet name
+        client = get_gsheet_client()
+        
+        if client is None:
+            st.error("❌ Could not connect to Google Sheets. Please check your credentials.")
+            return False
+            
+        sheet = client.open(sheet_name).sheet1  # Use first worksheet
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    sheet.append_row([
-        numeric_session_id,
-        uuid_session_id,
-        movie_title,
-        would_watch,
-        liked_if_seen,
-        timestamp
-    ])
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([
+            numeric_session_id,
+            uuid_session_id,
+            movie_title,
+            would_watch,
+            liked_if_seen,
+            timestamp
+        ])
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error saving to Google Sheets: {str(e)}")
+        return False
 
 nltk.download('vader_lexicon')
 nltk.download('punkt')
@@ -731,16 +778,27 @@ if st.session_state.recommend_triggered:
     if st.button("Submit All Responses"):
         # Store all responses in Google Sheet
         st.write("Saving to:", os.path.abspath(FEEDBACK_FILE))
+        success_count = 0
+        total_responses = 0
+        
         for index, feedback in user_feedback.items():
             if feedback["response"]:  # Only save if user provided a response
-                record_feedback_to_sheet(
+                total_responses += 1
+                if record_feedback_to_sheet(
                     numeric_session_id=st.session_state.numeric_session_id,
                     uuid_session_id=st.session_state.session_id,
                     movie_title=feedback["movie"],
                     would_watch=feedback["response"],
                     liked_if_seen=feedback["liked"] or ""
-                )
-        st.success("Feedback saved!")
+                ):
+                    success_count += 1
+        
+        if success_count == total_responses and total_responses > 0:
+            st.success(f"✅ All {success_count} responses saved successfully!")
+        elif success_count > 0:
+            st.warning(f"⚠️ {success_count}/{total_responses} responses saved. Some failed to save.")
+        else:
+            st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
 
 # --- Display Feedback Log ---
 if os.path.exists("user_feedback_log.csv"):
