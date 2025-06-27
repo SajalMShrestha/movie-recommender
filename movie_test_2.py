@@ -103,6 +103,12 @@ def get_gsheet_client():
             private_key = private_key.replace("\\n", "\n")
             creds_dict["private_key"] = private_key
         
+        # Additional cleanup - remove any extra quotes or formatting issues
+        private_key = private_key.strip()
+        if private_key.startswith('"') and private_key.endswith('"'):
+            private_key = private_key[1:-1]
+        creds_dict["private_key"] = private_key
+        
         # Debug: Check private key format
         if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
             st.error("❌ Private key is not in correct PEM format")
@@ -780,7 +786,6 @@ if st.session_state.recommend_triggered:
     # 2. Submit button at the end only
     if st.button("Submit All Responses"):
         # Store all responses in Google Sheet
-        st.write("Saving to:", os.path.abspath(FEEDBACK_FILE))
         success_count = 0
         total_responses = 0
         
