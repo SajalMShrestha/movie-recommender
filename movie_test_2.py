@@ -127,26 +127,29 @@ def get_gsheet_client():
 # Append a row of user feedback
 def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_title, would_watch, liked_if_seen):
     try:
-        sheet_name = "user_feedback"  # Your Google Sheet name
+        sheet_name = "user_feedback"  # your sheet name
         client = get_gsheet_client()
-        
         if client is None:
             st.error("❌ Could not connect to Google Sheets. Please check your credentials.")
             return False
-            
-        sheet = client.open(sheet_name).sheet1  # Use first worksheet
+
+        sheet = client.open(sheet_name).sheet1  # first worksheet
 
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        sheet.append_row([
+
+        # ✅ Explicitly convert all values to safe Python built-ins
+        row = [
             int(numeric_session_id),
             str(uuid_session_id),
             str(movie_title),
             str(would_watch),
             str(liked_if_seen),
             str(timestamp)
-        ])
+        ]
+
+        sheet.append_row(row)
         return True
-        
+
     except Exception as e:
         st.error(f"❌ Error saving to Google Sheets: {str(e)}")
         return False
