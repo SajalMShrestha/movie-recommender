@@ -138,12 +138,12 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_title, w
 
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         sheet.append_row([
-            numeric_session_id,
-            uuid_session_id,
-            movie_title,
-            would_watch,
-            liked_if_seen,
-            timestamp
+            int(numeric_session_id),
+            str(uuid_session_id),
+            str(movie_title),
+            str(would_watch),
+            str(liked_if_seen),
+            str(timestamp)
         ])
         return True
         
