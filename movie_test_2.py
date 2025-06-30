@@ -625,10 +625,24 @@ def recommend_movies(favorite_titles):
 
 st.title("🎬 Movie AI Recommender")
 
-# Movie Search & Selection UI
+# Setup flags
+if "search_done" not in st.session_state:
+    st.session_state["search_done"] = False
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
+
+# Get input
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+
+# ✅ Reset search_done when user types a different movie
+if search_query != st.session_state["previous_query"]:
+    st.session_state["search_done"] = False
+    st.session_state["previous_query"] = search_query
+
 search_results = []
-if search_query and len(search_query) >= 2:
+
+# 3️⃣ Only search if user hasn't just added a movie
+if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
@@ -647,30 +661,34 @@ if search_query and len(search_query) >= 2:
     except Exception as e:
         st.error(f"Error searching for movies: {e}")
 
+# 4️⃣ Show Top 5 only if we have results AND no movie was just added
 if search_results:
-    selected_label = st.selectbox(
-        "Select a movie from the results",
-        options=[item["label"] for item in search_results if "label" in item],
-        key="movie_select"
-    )
-    selected_movie = next((m for m in search_results if m["label"] == selected_label), None)
+    st.markdown("### Top 5 Matches")
+    cols = st.columns(5)
+    for idx, movie in enumerate(search_results):
+        with cols[idx]:
+            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
+            if poster_url:
+                st.image(poster_url, use_column_width=True)
+            st.write(f"**{movie['label']}**")
+            if st.button("Add Movie", key=f"add_{idx}"):
+                clean_title = movie["label"].split(" (", 1)[0]
+                movie_id = movie["id"]
 
-    if selected_movie and st.button("Add Movie"):
-        clean_title = selected_label.split(" (", 1)[0]
-        existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-        
-        if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies. Please remove some movies first.")
-        elif clean_title not in existing_titles:
-            st.session_state.favorite_movies.append({
-                "title": clean_title,
-                "year": selected_label.split("(", 1)[1].replace(")", "") if "(" in selected_label else "",
-                "poster_path": selected_movie.get("poster_path", "")
-            })
-            save_session({"favorite_movies": st.session_state.favorite_movies})
-            st.toast(f"✅ Added {clean_title}")
-            time.sleep(0.3)  # Optional: smooth UX
-            st.experimental_rerun()
+                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                if len(st.session_state.favorite_movies) >= 5:
+                    st.warning("You can only add up to 5 movies.")
+                elif clean_title not in existing_titles:
+                    st.session_state.favorite_movies.append({
+                        "title": clean_title,
+                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                        "poster_path": movie.get("poster_path", ""),
+                        "id": movie_id
+                    })
+                    save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.session_state["search_done"] = True  # ✅ Hide Top 5
+                    st.toast(f"✅ Added {clean_title}")
+                    st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
