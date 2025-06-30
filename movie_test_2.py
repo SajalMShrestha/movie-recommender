@@ -631,22 +631,22 @@ if "search_done" not in st.session_state:
 if "previous_query" not in st.session_state:
     st.session_state["previous_query"] = ""
 
-# ✅ Recommended section
+# ✅ Always put this FIRST:
+search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+
+# ✅ Now safe to compare:
 if "last_query" not in st.session_state:
     st.session_state.last_query = ""
 
 if "show_search_results" not in st.session_state:
     st.session_state.show_search_results = False
 
-# ✅ Compare query & toggle results
+# ✅ Compare query AFTER defining it!
 if search_query != st.session_state.last_query and len(search_query) >= 2:
     st.session_state.last_query = search_query
     st.session_state.show_search_results = True
 
 # --- 1️⃣ Search box ---
-search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
-
-# --- 2️⃣ Perform search ---
 search_results = []
 if search_query and len(search_query) >= 2:
     try:
