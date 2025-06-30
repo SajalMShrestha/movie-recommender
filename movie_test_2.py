@@ -830,11 +830,3 @@ if st.session_state.recommend_triggered:
             st.warning(f"⚠️ {success_count}/{total_responses} responses saved. Some failed to save.")
         else:
             st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
-
-# --- Display Feedback Log ---
-if os.path.exists("user_feedback_log.csv"):
-    st.success("✅ Feedback file found!")
-    df = pd.read_csv("user_feedback_log.csv")
-    st.dataframe(df.tail(10))  # Show the last 10 rows for quick inspection
-else:
-    st.info("📝 Feedback log not found yet. Submit feedback after getting recommendations.")
