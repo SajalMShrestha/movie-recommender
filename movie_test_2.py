@@ -658,7 +658,7 @@ if search_results:
                 st.image(poster_url, use_column_width=True)
             st.write(f"**{movie['label']}**")
 
-            if st.button(f"Add '{movie['label']}'", key=f"add_{idx}"):
+            if st.button("Add Movie", key=f"add_{idx}"):
                 clean_title = movie["label"].split(" (", 1)[0]
                 movie_id = movie["id"]
 
