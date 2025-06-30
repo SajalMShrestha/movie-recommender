@@ -631,18 +631,22 @@ if "search_done" not in st.session_state:
 if "previous_query" not in st.session_state:
     st.session_state["previous_query"] = ""
 
-# --- 1️⃣ Search box ---
-search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
-
-# --- 2️⃣ If the query changed, reset the show flag ---
+# ✅ Recommended section
 if "last_query" not in st.session_state:
     st.session_state.last_query = ""
 
-if search_query != st.session_state.last_query:
-    st.session_state.show_search_results = True
-    st.session_state.last_query = search_query
+if "show_search_results" not in st.session_state:
+    st.session_state.show_search_results = False
 
-# --- 3️⃣ Perform search ---
+# ✅ Compare query & toggle results
+if search_query != st.session_state.last_query and len(search_query) >= 2:
+    st.session_state.last_query = search_query
+    st.session_state.show_search_results = True
+
+# --- 1️⃣ Search box ---
+search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+
+# --- 2️⃣ Perform search ---
 search_results = []
 if search_query and len(search_query) >= 2:
     try:
@@ -664,7 +668,7 @@ if search_query and len(search_query) >= 2:
         st.error(f"Error searching for movies: {e}")
 
 # --- 4️⃣ Show Top 5 if toggled ---
-if st.session_state.get("show_search_results", False) and search_results:
+if st.session_state.show_search_results and search_results:
     st.markdown("### Top 5 Matches")
     cols = st.columns(5)
 
@@ -692,11 +696,10 @@ if st.session_state.get("show_search_results", False) and search_results:
                     save_session({"favorite_movies": st.session_state.favorite_movies})
                     st.toast(f"✅ Added {clean_title}")
 
-                    # ✅ 1. Hide the matches
+                    # ✅ Lock state: Hide matches & lock query
                     st.session_state.show_search_results = False
-
-                    # ✅ 2. Freeze the trigger — lock query to last_query
                     st.session_state.last_query = search_query
+                    st.experimental_rerun()  # ✅ Ensure instant hide
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
