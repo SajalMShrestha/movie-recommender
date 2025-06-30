@@ -679,7 +679,7 @@ if st.session_state.show_search_results and search_results:
                 st.image(poster_url, use_column_width=True)
             st.write(f"**{movie['label']}**")
 
-            if st.button("Add Movie", key=f"add_{idx}"):
+            if st.button(f"Add Movie", key=f"add_{idx}"):
                 clean_title = movie["label"].split(" (", 1)[0]
                 movie_id = movie["id"]
 
@@ -699,7 +699,6 @@ if st.session_state.show_search_results and search_results:
                     # ✅ Lock state: Hide matches & lock query
                     st.session_state.show_search_results = False
                     st.session_state.last_query = search_query
-                    st.experimental_rerun()  # ✅ Ensure instant hide
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
