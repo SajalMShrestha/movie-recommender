@@ -625,10 +625,17 @@ def recommend_movies(favorite_titles):
 
 st.title("🎬 Movie AI Recommender")
 
-# Movie Search & Selection UI
+# 1️⃣ Session flag to track if movie was added → skip showing results
+if "search_done" not in st.session_state:
+    st.session_state["search_done"] = False
+
+# 2️⃣ The search box stays
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+
 search_results = []
-if search_query and len(search_query) >= 2:
+
+# 3️⃣ Only search if user hasn't just added a movie
+if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
@@ -647,17 +654,16 @@ if search_query and len(search_query) >= 2:
     except Exception as e:
         st.error(f"Error searching for movies: {e}")
 
+# 4️⃣ Show Top 5 only if we have results AND no movie was just added
 if search_results:
     st.markdown("### Top 5 Matches")
     cols = st.columns(5)
-
     for idx, movie in enumerate(search_results):
         with cols[idx]:
             poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
             if poster_url:
                 st.image(poster_url, use_column_width=True)
             st.write(f"**{movie['label']}**")
-
             if st.button("Add Movie", key=f"add_{idx}"):
                 clean_title = movie["label"].split(" (", 1)[0]
                 movie_id = movie["id"]
@@ -673,7 +679,7 @@ if search_results:
                         "id": movie_id
                     })
                     save_session({"favorite_movies": st.session_state.favorite_movies})
-                    st.session_state["movie_search"] = ""  # ✅ Clear search bar to hide matches
+                    st.session_state["search_done"] = True  # ✅ Hide Top 5
                     st.toast(f"✅ Added {clean_title}")
                     st.experimental_rerun()
 
