@@ -670,9 +670,10 @@ if search_results:
                         "title": clean_title,
                         "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
                         "poster_path": movie.get("poster_path", ""),
-                        "id": movie_id  # ✅ store ID!
+                        "id": movie_id
                     })
                     save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.session_state["movie_search"] = ""  # ✅ Clear search bar to hide matches
                     st.toast(f"✅ Added {clean_title}")
                     st.experimental_rerun()
 
