@@ -641,36 +641,22 @@ if search_query != st.session_state["previous_query"]:
 
 search_results = []
 
-# 3️⃣ Only search if user hasn't just added a movie
-if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
-    try:
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
-        response = requests.get(url, params=params)
-        data = response.json()
-        results = data.get("results", [])
-        search_results = [
-            {
-                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
-                "id": m.get("id"),
-                "poster_path": m.get("poster_path")
-            }
-            for m in results[:5]
-            if m.get("title") and m.get("id")
-        ]
-    except Exception as e:
-        st.error(f"Error searching for movies: {e}")
+# --- Keep track of whether to show Top 5 ---
+if search_query and len(search_query) >= 2:
+    st.session_state.show_search_results = True
 
-# 4️⃣ Show Top 5 only if we have results AND no movie was just added
-if search_results:
+# --- Only show if toggle is ON ---
+if st.session_state.get("show_search_results", False) and search_results:
     st.markdown("### Top 5 Matches")
     cols = st.columns(5)
+
     for idx, movie in enumerate(search_results):
         with cols[idx]:
             poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
             if poster_url:
                 st.image(poster_url, use_column_width=True)
             st.write(f"**{movie['label']}**")
+
             if st.button("Add Movie", key=f"add_{idx}"):
                 clean_title = movie["label"].split(" (", 1)[0]
                 movie_id = movie["id"]
@@ -686,9 +672,9 @@ if search_results:
                         "id": movie_id
                     })
                     save_session({"favorite_movies": st.session_state.favorite_movies})
-                    st.session_state["search_done"] = True  # ✅ Hide Top 5
                     st.toast(f"✅ Added {clean_title}")
-                    st.experimental_rerun()
+                    # ✅ Hide Top 5 matches after adding
+                    st.session_state.show_search_results = False
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
