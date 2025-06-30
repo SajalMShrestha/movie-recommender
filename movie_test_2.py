@@ -671,24 +671,26 @@ if search_results:
             if poster_url:
                 st.image(poster_url, use_column_width=True)
             st.write(f"**{movie['label']}**")
-            if st.button("Add Movie", key=f"add_{idx}"):
-                clean_title = movie["label"].split(" (", 1)[0]
-                movie_id = movie["id"]
+            
+            with st.form(key=f"add_form_{idx}"):
+                add_clicked = st.form_submit_button("Add Movie")
+                if add_clicked:
+                    clean_title = movie["label"].split(" (", 1)[0]
+                    movie_id = movie["id"]
 
-                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                if len(st.session_state.favorite_movies) >= 5:
-                    st.warning("You can only add up to 5 movies.")
-                elif clean_title not in existing_titles:
-                    st.session_state.favorite_movies.append({
-                        "title": clean_title,
-                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
-                        "poster_path": movie.get("poster_path", ""),
-                        "id": movie_id
-                    })
-                    save_session({"favorite_movies": st.session_state.favorite_movies})
-                    st.session_state["search_done"] = True  # ✅ Hide Top 5
-                    st.toast(f"✅ Added {clean_title}")
-                    st.experimental_rerun()
+                    existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                    if len(st.session_state.favorite_movies) >= 5:
+                        st.warning("You can only add up to 5 movies.")
+                    elif clean_title not in existing_titles:
+                        st.session_state.favorite_movies.append({
+                            "title": clean_title,
+                            "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                            "poster_path": movie.get("poster_path", ""),
+                            "id": movie_id
+                        })
+                        save_session({"favorite_movies": st.session_state.favorite_movies})
+                        st.session_state["search_done"] = True  # ✅ Hide Top 5
+                        st.toast(f"✅ Added {clean_title}")
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
