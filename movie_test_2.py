@@ -648,29 +648,33 @@ if search_query and len(search_query) >= 2:
         st.error(f"Error searching for movies: {e}")
 
 if search_results:
-    selected_label = st.selectbox(
-        "Select a movie from the results",
-        options=[item["label"] for item in search_results if "label" in item],
-        key="movie_select"
-    )
-    selected_movie = next((m for m in search_results if m["label"] == selected_label), None)
+    st.markdown("### Top 5 Matches")
+    cols = st.columns(5)
 
-    if selected_movie and st.button("Add Movie"):
-        clean_title = selected_label.split(" (", 1)[0]
-        existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-        
-        if len(st.session_state.favorite_movies) >= 5:
-            st.warning("You can only add up to 5 movies. Please remove some movies first.")
-        elif clean_title not in existing_titles:
-            st.session_state.favorite_movies.append({
-                "title": clean_title,
-                "year": selected_label.split("(", 1)[1].replace(")", "") if "(" in selected_label else "",
-                "poster_path": selected_movie.get("poster_path", "")
-            })
-            save_session({"favorite_movies": st.session_state.favorite_movies})
-            st.toast(f"✅ Added {clean_title}")
-            time.sleep(0.3)  # Optional: smooth UX
-            st.experimental_rerun()
+    for idx, movie in enumerate(search_results):
+        with cols[idx]:
+            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
+            if poster_url:
+                st.image(poster_url, use_column_width=True)
+            st.write(f"**{movie['label']}**")
+
+            if st.button(f"Add '{movie['label']}'", key=f"add_{idx}"):
+                clean_title = movie["label"].split(" (", 1)[0]
+                movie_id = movie["id"]
+
+                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                if len(st.session_state.favorite_movies) >= 5:
+                    st.warning("You can only add up to 5 movies.")
+                elif clean_title not in existing_titles:
+                    st.session_state.favorite_movies.append({
+                        "title": clean_title,
+                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                        "poster_path": movie.get("poster_path", ""),
+                        "id": movie_id  # ✅ store ID!
+                    })
+                    save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.toast(f"✅ Added {clean_title}")
+                    st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
