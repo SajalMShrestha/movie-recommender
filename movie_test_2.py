@@ -623,7 +623,7 @@ def recommend_movies(favorite_titles):
         if len(top)==10: break
     return top, candidate_movies
 
-st.title("🎬 Movie AI Recommender")
+st.title("🎬 Screen or Skip")
 
 # Setup flags
 if "search_done" not in st.session_state:
@@ -632,7 +632,7 @@ if "previous_query" not in st.session_state:
     st.session_state["previous_query"] = ""
 
 # Get input
-search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+search_query = st.text_input("search for a movie", key="movie_search")
 
 # ✅ Reset search_done when user types a different movie
 if search_query != st.session_state["previous_query"]:
