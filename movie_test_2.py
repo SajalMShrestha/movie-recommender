@@ -691,8 +691,12 @@ if st.session_state.get("show_search_results", False) and search_results:
                     })
                     save_session({"favorite_movies": st.session_state.favorite_movies})
                     st.toast(f"✅ Added {clean_title}")
-                    st.session_state.show_search_results = False  # ✅ Hide results!
-                    st.session_state.last_query = ""  # ✅✅ Force reset → disables re-show
+
+                    # ✅ 1. Hide the matches
+                    st.session_state.show_search_results = False
+
+                    # ✅ 2. Freeze the trigger — lock query to last_query
+                    st.session_state.last_query = search_query
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
