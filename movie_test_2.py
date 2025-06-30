@@ -631,21 +631,39 @@ if "search_done" not in st.session_state:
 if "previous_query" not in st.session_state:
     st.session_state["previous_query"] = ""
 
-# Get input
+# --- 1️⃣ Search box ---
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
 
-# ✅ Reset search_done when user types a different movie
-if search_query != st.session_state["previous_query"]:
-    st.session_state["search_done"] = False
-    st.session_state["previous_query"] = search_query
+# --- 2️⃣ If the query changed, reset the show flag ---
+if "last_query" not in st.session_state:
+    st.session_state.last_query = ""
 
-search_results = []
-
-# --- Keep track of whether to show Top 5 ---
-if search_query and len(search_query) >= 2:
+if search_query != st.session_state.last_query:
     st.session_state.show_search_results = True
+    st.session_state.last_query = search_query
 
-# --- Only show if toggle is ON ---
+# --- 3️⃣ Perform search ---
+search_results = []
+if search_query and len(search_query) >= 2:
+    try:
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+        response = requests.get(url, params=params)
+        data = response.json()
+        results = data.get("results", [])
+        search_results = [
+            {
+                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
+                "id": m.get("id"),
+                "poster_path": m.get("poster_path")
+            }
+            for m in results[:5]
+            if m.get("title") and m.get("id")
+        ]
+    except Exception as e:
+        st.error(f"Error searching for movies: {e}")
+
+# --- 4️⃣ Show Top 5 if toggled ---
 if st.session_state.get("show_search_results", False) and search_results:
     st.markdown("### Top 5 Matches")
     cols = st.columns(5)
@@ -673,8 +691,7 @@ if st.session_state.get("show_search_results", False) and search_results:
                     })
                     save_session({"favorite_movies": st.session_state.favorite_movies})
                     st.toast(f"✅ Added {clean_title}")
-                    # ✅ Hide Top 5 matches after adding
-                    st.session_state.show_search_results = False
+                    st.session_state.show_search_results = False  # Hide matches!
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
