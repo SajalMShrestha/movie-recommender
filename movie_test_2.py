@@ -536,12 +536,8 @@ def recommend_movies(favorite_titles):
                 continue
             candidate_movies[mid] = (m, embedding)
 
-    st.write(f"🎯 Favorite titles: {favorite_titles}")
-    st.write(f"🔍 Candidate Movie IDs fetched: {len(candidate_movie_ids)}")
-    st.write(f"🧠 Candidate Movies with embeddings: {len(candidate_movies)}")
-
+    # Removed debug output
     valid_titles = [m.title for m, emb in candidate_movies.values() if m and emb is not None]
-    st.markdown(f"✅ Valid candidate titles: {valid_titles}")
 
     if not candidate_movies:
         st.warning("No candidate movies with valid plots or embeddings were found.")
@@ -551,7 +547,6 @@ def recommend_movies(favorite_titles):
 
     def compute_score(m, avg_fav_embedding):
         narrative = m.narrative_style
-        # st.write(f"{m.title} narrative style: {narrative}")  # Removed from UI
         score = 0.0
         genres = {g['name'] for g in m.genres}
         score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres)/max(len(favorite_genres),1))
@@ -569,7 +564,6 @@ def recommend_movies(favorite_titles):
         narrative = infer_narrative_style(m.plot)
         narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
         score += recommendation_weights['narrative_style'] * narrative_match_score
-        # st.write(f"{m.title} narrative_match={narrative_match_score:.2f}")
 
         # --- New: Embedding Similarity ---
         candidate_embedding = candidate_movies[m.id][1]  # (movie_obj, embedding)
@@ -592,14 +586,12 @@ def recommend_movies(favorite_titles):
                 score -= 0.03  # small age penalty
         except:
             pass
-        # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         try:
             release_year=int(m.release_date[:4])
             user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
             if 15<=user_age_at_release<=25: score += recommendation_weights['age_alignment']
             elif 10<=user_age_at_release<15 or 25<user_age_at_release<=30: score += recommendation_weights['age_alignment']*0.5
         except: pass
-        # st.write(f"{m.title} → total_score: {score:.4f}, trending_boost: {movie_trend_score:.2f}")
         return max(score, 0)
 
     scored = []
