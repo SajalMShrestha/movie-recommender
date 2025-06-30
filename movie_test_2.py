@@ -125,7 +125,7 @@ def get_gsheet_client():
         return None
 
 # Append a row of user feedback
-def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_title, would_watch, liked_if_seen):
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movie_title, would_watch, liked_if_seen):
     try:
         sheet_name = "user_feedback"  # your sheet name
         client = get_gsheet_client()
@@ -141,6 +141,7 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_title, w
         row = [
             int(numeric_session_id),
             str(uuid_session_id),
+            str(movie_id),
             str(movie_title),
             str(would_watch),
             str(liked_if_seen),
@@ -798,6 +799,7 @@ if st.session_state.recommend_triggered:
                 if record_feedback_to_sheet(
                     numeric_session_id=st.session_state.numeric_session_id,
                     uuid_session_id=st.session_state.session_id,
+                    movie_id=feedback["movie_id"],
                     movie_title=feedback["movie"],
                     would_watch=feedback["response"],
                     liked_if_seen=feedback["liked"] or ""
