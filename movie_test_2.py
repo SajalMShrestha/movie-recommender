@@ -626,34 +626,23 @@ def recommend_movies(favorite_titles):
 st.title("🎬 Movie AI Recommender")
 
 # Setup flags
-if "search_done" not in st.session_state:
-    st.session_state["search_done"] = False
-if "previous_query" not in st.session_state:
-    st.session_state["previous_query"] = ""
-
-# ✅ Always put this FIRST:
-search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
-
-# Initialize state on first load
-if "last_query" not in st.session_state:
-    st.session_state.last_query = ""
-
-if search_query != st.session_state.last_query:
-    st.session_state.last_query = search_query
-    st.session_state.show_search_results = True
-
-# ✅ Now safe to compare:
 if "show_search_results" not in st.session_state:
     st.session_state.show_search_results = False
 
-# ✅ Compare query AFTER defining it!
-if search_query != st.session_state.last_query and len(search_query) >= 2:
-    st.session_state.last_query = search_query
-    st.session_state.show_search_results = True
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
 
-# --- 1️⃣ Search box ---
+# Get input
+search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+
+# ✅ Reset show_search_results when user types a different movie
+if search_query != st.session_state["previous_query"]:
+    st.session_state.show_search_results = True
+    st.session_state["previous_query"] = search_query
+
+# 3️⃣ Only search if allowed
 search_results = []
-if search_query and len(search_query) >= 2:
+if search_query and len(search_query) >= 2 and st.session_state.show_search_results:
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
@@ -672,19 +661,17 @@ if search_query and len(search_query) >= 2:
     except Exception as e:
         st.error(f"Error searching for movies: {e}")
 
-# --- 4️⃣ Show Top 5 if toggled ---
-if st.session_state.show_search_results and search_results:
+# ✅ When you click Add Movie
+if search_results:
     st.markdown("### Top 5 Matches")
     cols = st.columns(5)
-
     for idx, movie in enumerate(search_results):
         with cols[idx]:
             poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
             if poster_url:
                 st.image(poster_url, use_column_width=True)
             st.write(f"**{movie['label']}**")
-
-            if st.button(f"Add Movie", key=f"add_{idx}"):
+            if st.button("Add Movie", key=f"add_{idx}"):
                 clean_title = movie["label"].split(" (", 1)[0]
                 movie_id = movie["id"]
 
@@ -699,11 +686,9 @@ if st.session_state.show_search_results and search_results:
                         "id": movie_id
                     })
                     save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.session_state.show_search_results = False  # ✅ Hides Top 5 on next run
                     st.toast(f"✅ Added {clean_title}")
-
-                    # ✅ Lock state: Hide matches & lock query
-                    st.session_state.show_search_results = False
-                    st.session_state.last_query = search_query
+                    st.experimental_rerun()
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
