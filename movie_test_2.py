@@ -634,10 +634,15 @@ if "previous_query" not in st.session_state:
 # ✅ Always put this FIRST:
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
 
-# ✅ Now safe to compare:
+# Initialize state on first load
 if "last_query" not in st.session_state:
     st.session_state.last_query = ""
 
+if search_query != st.session_state.last_query:
+    st.session_state.last_query = search_query
+    st.session_state.show_search_results = True
+
+# ✅ Now safe to compare:
 if "show_search_results" not in st.session_state:
     st.session_state.show_search_results = False
 
