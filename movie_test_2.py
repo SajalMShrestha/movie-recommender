@@ -625,12 +625,19 @@ def recommend_movies(favorite_titles):
 
 st.title("🎬 Movie AI Recommender")
 
-# 1️⃣ Session flag to track if movie was added → skip showing results
+# Setup flags
 if "search_done" not in st.session_state:
     st.session_state["search_done"] = False
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
 
-# 2️⃣ The search box stays
+# Get input
 search_query = st.text_input("Search for a movie (type at least 2 characters)", key="movie_search")
+
+# ✅ Reset search_done when user types a different movie
+if search_query != st.session_state["previous_query"]:
+    st.session_state["search_done"] = False
+    st.session_state["previous_query"] = search_query
 
 search_results = []
 
