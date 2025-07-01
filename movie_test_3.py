@@ -478,9 +478,9 @@ def recommend_movies(favorite_titles):
             emb = embedding_model.encode(overview, convert_to_numpy=True)  # ✅ make sure this is NumPy!
             favorite_embeddings.append(emb)
             favorite_genres.update([g['name'] for g in details.genres])
-            # ✅ Now correctly read from credits
+            # ✅ CORRECT: use dict syntax
             favorite_actors.update([c['name'] for c in credits['cast'][:3]])
-            favorite_actors.update([d['name'] for d in credits['crew'] if d['job']=='Director'])
+            favorite_actors.update([d['name'] for d in credits['crew'] if d['job'] == 'Director'])
             plot_moods.add(infer_mood_from_plot(overview))
             narr_style = infer_narrative_style(overview)
             for key in favorite_narrative_styles:
