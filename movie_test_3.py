@@ -494,8 +494,8 @@ def recommend_movies(favorite_titles):
             discover_url = "https://api.themoviedb.org/3/discover/movie"
             params = {
                 "api_key": tmdb.api_key,
-                "with_genres": ",".join([str(g['id']) for g in details.genres]),
-                "with_cast": ",".join([str(c['id']) for c in credits['cast'][:3]]) if credits.get('cast') else "",
+                "with_genres": ",".join([str(g.id) for g in details.genres]),
+                "with_cast": ",".join([str(c.id) for c in credits['cast'][:3]]) if credits.get('cast') else "",
                 "with_crew": ",".join([str(c['id']) for c in credits['crew'] if c['job'] == 'Director']) if credits.get('crew') else "",
                 "sort_by": "popularity.desc",
                 "language": "en-US",
