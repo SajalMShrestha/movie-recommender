@@ -22,8 +22,6 @@ from sentence_transformers.util import cos_sim
 import uuid
 import gspread
 from google.oauth2.service_account import Credentials
-from torch import stack
-import torch
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -321,7 +319,7 @@ def fetch_similar_movie_details(m_id):
         m_details.narrative_style = infer_narrative_style(m_details.plot)
 
         # ✅ Generate embedding
-        embedding = embedding_model.encode(m_details.plot, convert_to_numpy=True)
+        embedding = embedding_model.encode(m_details.plot)
 
         cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
@@ -398,7 +396,7 @@ def generate_embedding(text):
     return embedding_model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
 
 def cosine_similarity(vec1, vec2):
-    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2) + 1e-8)
+    return dot(vec1, vec2) / (norm(vec1) * norm(vec2) + 1e-8)
 
 def infer_narrative_style(plot):
     if not plot:
@@ -470,24 +468,22 @@ def recommend_movies(favorite_titles):
     favorite_embeddings = []
 
     for title in favorite_titles:
-        results = movie_api.search(title)
-        if results:
-            details = movie_api.details(results[0].id)
-            credits = movie_api.credits(results[0].id)   # ✅ get cast & crew properly
-            overview = details.overview or ""
-            emb = embedding_model.encode(overview, convert_to_numpy=True)  # ✅ make sure this is NumPy!
-            favorite_embeddings.append(emb)
-            favorite_genres.update([g['name'] for g in details.genres])
-            favorite_actors.update([c['name'] for c in credits['cast'][:3]])
-            favorite_actors.update([d['name'] for d in credits['crew'] if d['job'] == 'Director'])
-            plot_moods.add(infer_mood_from_plot(overview))
-            narr_style = infer_narrative_style(overview)
-            for key in favorite_narrative_styles:
-                favorite_narrative_styles[key].append(narr_style.get(key, ""))
-            if details.release_date:
-                favorite_years.append(int(details.release_date[:4]))
+        search_result = movie_api.search(title)
+        if not search_result:
+            continue
+        details = movie_api.details(search_result[0].id)
+        credits = movie_api.credits(search_result[0].id)
+        favorite_genres.update([g['name'] for g in details.genres])
+        favorite_actors.update([c['name'] for c in list(credits['cast'])[:3]])
+        favorite_actors.update([d['name'] for d in credits['crew'] if d['job']=='Director'])
+        plot_moods.add(infer_mood_from_plot(details.overview or ""))
+        narr_style = infer_narrative_style(details.overview or "")
+        for key in favorite_narrative_styles:
+            favorite_narrative_styles[key].append(narr_style.get(key, ""))
+        if details.release_date:
+            favorite_years.append(int(details.release_date[:4]))
         
-        enriched_plot = f"{overview} Genres: {', '.join([g['name'] for g in details.genres])}."
+        enriched_plot = f"{details.overview} Genres: {', '.join([g['name'] for g in details.genres])}."
         embedding = generate_embedding(enriched_plot)
         favorite_embeddings.append(embedding)
         
@@ -498,21 +494,21 @@ def recommend_movies(favorite_titles):
         except:
             continue
 
+    # Compute average embedding of favorite movies
+    favorite_embeddings = []
+    for title in favorite_titles:
+        results = movie_api.search(title)
+        if results:
+            details = movie_api.details(results[0].id)
+            overview = details.overview or ""
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+
     if favorite_embeddings:
-        # Step 1: Create your weights: 5 favorites get [0.35, 0.25, 0.20, 0.15, 0.05]
-        weights = np.array([0.35, 0.25, 0.20, 0.15, 0.05])
-        weights = weights[:len(favorite_embeddings)]  # slice if < 5 movies
-        weights = weights / weights.sum()  # normalize to sum to 1
-
-        # Step 2: Stack to array
-        emb_array = np.stack(favorite_embeddings)
-
-        # Step 3: Compute weighted average
-        weighted_avg_embedding = np.average(emb_array, axis=0, weights=weights)
+        from torch import stack
+        avg_fav_embedding = stack(favorite_embeddings).mean(dim=0)
     else:
-        weighted_avg_embedding = None
-
-    avg_fav_embedding = weighted_avg_embedding
+        avg_fav_embedding = None
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
@@ -571,7 +567,7 @@ def recommend_movies(favorite_titles):
 
         # --- New: Embedding Similarity ---
         candidate_embedding = candidate_movies[m.id][1]  # (movie_obj, embedding)
-        embedding_sim_score = cosine_similarity(candidate_embedding, weighted_avg_embedding)
+        embedding_sim_score = float(cos_sim(candidate_embedding, avg_fav_embedding))
 
         score += recommendation_weights['embedding_similarity'] * embedding_sim_score
 
