@@ -22,6 +22,7 @@ from sentence_transformers.util import cos_sim
 import uuid
 import gspread
 from google.oauth2.service_account import Credentials
+from torch import stack
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -494,7 +495,6 @@ def recommend_movies(favorite_titles):
         except:
             continue
 
-    # Compute average embedding of favorite movies
     favorite_embeddings = []
     for title in favorite_titles:
         results = movie_api.search(title)
@@ -505,8 +505,26 @@ def recommend_movies(favorite_titles):
             favorite_embeddings.append(emb)
 
     if favorite_embeddings:
-        from torch import stack
-        avg_fav_embedding = stack(favorite_embeddings).mean(dim=0)
+        import torch
+
+        # Define raw weights for positions 1 to 5
+        raw_weights = [0.3, 0.25, 0.2, 0.15, 0.1]
+
+        # Trim weights if fewer movies
+        weights = raw_weights[:len(favorite_embeddings)]
+
+        # Normalize so they sum to 1
+        weight_sum = sum(weights)
+        weights = [w / weight_sum for w in weights]
+
+        # Convert to tensor for broadcasting
+        weight_tensor = torch.tensor(weights).unsqueeze(1)
+
+        # Stack embeddings (N x D)
+        stacked = stack(favorite_embeddings)
+
+        # Weighted average: multiply each embedding by its weight and sum along N
+        avg_fav_embedding = torch.sum(weight_tensor * stacked, dim=0)
     else:
         avg_fav_embedding = None
 
