@@ -473,12 +473,14 @@ def recommend_movies(favorite_titles):
         results = movie_api.search(title)
         if results:
             details = movie_api.details(results[0].id)
+            credits = movie_api.credits(results[0].id)   # ✅ get cast & crew properly
             overview = details.overview or ""
             emb = embedding_model.encode(overview, convert_to_numpy=True)  # ✅ make sure this is NumPy!
             favorite_embeddings.append(emb)
             favorite_genres.update([g['name'] for g in details.genres])
-            favorite_actors.update([c['name'] for c in list(details['cast'])[:3]])
-            favorite_actors.update([d['name'] for d in details['crew'] if d['job']=='Director'])
+            # ✅ Now correctly read from credits
+            favorite_actors.update([c['name'] for c in credits['cast'][:3]])
+            favorite_actors.update([d['name'] for d in credits['crew'] if d['job']=='Director'])
             plot_moods.add(infer_mood_from_plot(overview))
             narr_style = infer_narrative_style(overview)
             for key in favorite_narrative_styles:
