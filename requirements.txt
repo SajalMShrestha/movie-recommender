@@ -10,3 +10,6 @@ textstat
 sentence-transformers
 gspread
 oauth2client
+
+sentence-transformers==2.2.2
+torch==1.13.1
