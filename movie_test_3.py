@@ -321,7 +321,7 @@ def fetch_candidate_movie_details(m_id):
         m_details.narrative_style = infer_narrative_style(m_details.plot)
 
         # ✅ Generate embedding
-        embedding = embedding_model.encode(m_details.plot)
+        embedding = embedding_model.encode(m_details.plot, device='cpu')
 
         cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
@@ -494,18 +494,8 @@ def recommend_movies(favorite_titles):
             params = {
                 "api_key": tmdb.api_key,
                 "with_genres": ",".join([
-                    str(g["id"]) if isinstance(g, dict) else str(g.id)
-                    for g in details.genres if g and ("id" in g if isinstance(g, dict) else hasattr(g, "id"))
-                ]),
-                "with_cast": ",".join([
-                    str(c["id"]) if isinstance(c, dict) else str(c.id)
-                    for c in credits.get('cast', [])[:3] if c and ("id" in c if isinstance(c, dict) else hasattr(c, "id"))
-                ]),
-                "with_crew": ",".join([
-                    str(c["id"]) if isinstance(c, dict) else str(c.id)
-                    for c in credits.get('crew', []) if c.get('job') == 'Director' and (
-                        ("id" in c if isinstance(c, dict) else hasattr(c, "id"))
-                    )
+                    str(g["id"]) if isinstance(g, dict) and "id" in g else str(g.id)
+                    for g in details.genres if g and (isinstance(g, dict) or hasattr(g, "id"))
                 ]),
                 "sort_by": "popularity.desc",
                 "language": "en-US",
