@@ -22,6 +22,8 @@ from sentence_transformers.util import cos_sim
 import uuid
 import gspread
 from google.oauth2.service_account import Credentials
+from torch import stack
+import torch
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -495,20 +497,11 @@ def recommend_movies(favorite_titles):
             continue
 
     # Compute average embedding of favorite movies
-    favorite_embeddings = []
-    for title in favorite_titles:
-        results = movie_api.search(title)
-        if results:
-            details = movie_api.details(results[0].id)
-            overview = details.overview or ""
-            emb = embedding_model.encode(overview, convert_to_tensor=True)
-            favorite_embeddings.append(emb)
-
-    if favorite_embeddings:
-        from torch import stack
-        avg_fav_embedding = stack(favorite_embeddings).mean(dim=0)
-    else:
-        avg_fav_embedding = None
+    from torch import stack
+    weights = torch.tensor([0.35, 0.25, 0.20, 0.15, 0.05])
+    weights = weights.to(favorite_embeddings[0].device)  # ensure same device
+    weighted_avg_embedding = (weights[:, None] * stack(favorite_embeddings)).sum(dim=0)
+    avg_fav_embedding = weighted_avg_embedding
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
