@@ -493,23 +493,25 @@ def recommend_movies(favorite_titles):
         try:
             params = {
                 "api_key": tmdb.api_key,
+                "with_genres": ",".join([
+                    str(g["id"]) if isinstance(g, dict) else str(g.id)
+                    for g in details.genres if g and ("id" in g if isinstance(g, dict) else hasattr(g, "id"))
+                ]),
+                "with_cast": ",".join([
+                    str(c["id"]) if isinstance(c, dict) else str(c.id)
+                    for c in credits.get('cast', [])[:3] if c and ("id" in c if isinstance(c, dict) else hasattr(c, "id"))
+                ]),
+                "with_crew": ",".join([
+                    str(c["id"]) if isinstance(c, dict) else str(c.id)
+                    for c in credits.get('crew', []) if c.get('job') == 'Director' and (
+                        ("id" in c if isinstance(c, dict) else hasattr(c, "id"))
+                    )
+                ]),
                 "sort_by": "popularity.desc",
                 "language": "en-US",
                 "page": 1,
                 "primary_release_date.gte": "1980-01-01"
             }
-
-            genre_ids = [str(g['id']) if isinstance(g, dict) else str(g.id) for g in details.genres]
-            if genre_ids:
-                params["with_genres"] = ",".join(genre_ids)
-
-            cast_ids = [str(c['id']) if isinstance(c, dict) else str(c.id) for c in credits.get('cast', [])[:3] if ('id' in c if isinstance(c, dict) else hasattr(c, 'id'))]
-            if cast_ids:
-                params["with_cast"] = ",".join(cast_ids)
-
-            crew_ids = [str(c['id']) if isinstance(c, dict) else str(c.id) for c in credits.get('crew', []) if (c.get('job') == 'Director' if isinstance(c, dict) else getattr(c, 'job', '') == 'Director')]
-            if crew_ids:
-                params["with_crew"] = ",".join(crew_ids)
 
             response = requests.get("https://api.themoviedb.org/3/discover/movie", params=params)
             response.raise_for_status()
