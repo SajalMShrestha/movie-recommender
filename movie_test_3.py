@@ -173,7 +173,8 @@ movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
 
 # Initialize embedding model for semantic analysis
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
