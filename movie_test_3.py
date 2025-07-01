@@ -173,7 +173,7 @@ movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
 
 # Initialize embedding model for semantic analysis
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
@@ -321,7 +321,7 @@ def fetch_candidate_movie_details(m_id):
         m_details.narrative_style = infer_narrative_style(m_details.plot)
 
         # ✅ Generate embedding
-        embedding = embedding_model.encode(m_details.plot, device='cpu')
+        embedding = embedding_model.encode(m_details.plot)
 
         cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
