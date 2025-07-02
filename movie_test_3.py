@@ -325,9 +325,12 @@ def fetch_similar_movie_details(m_id):
                 name = getattr(g, 'name', '')
             if name:
                 genres.append(name)
-        cast_list = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
+        cast_list_raw = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
         crew_list = m_credits.get('crew', []) if isinstance(m_credits, dict) else getattr(m_credits, 'crew', [])
-        m_details.cast = cast_list[:3]
+        if hasattr(cast_list_raw, '__iter__'):
+            m_details.cast = list(cast_list_raw)[:3] if cast_list_raw else []
+        else:
+            m_details.cast = []
         directors = []
         for c in crew_list:
             is_director = False
@@ -487,18 +490,23 @@ def construct_enriched_description(movie_details, credits, keywords=None):
     
     # Handle credits safely
     if isinstance(credits, dict):
-        cast_list = credits.get('cast', [])[:3]
+        cast_list_raw = credits.get('cast', [])
         crew_list = credits.get('crew', [])
     else:
-        cast_list = getattr(credits, 'cast', [])[:3]
+        cast_list_raw = getattr(credits, 'cast', [])
         crew_list = getattr(credits, 'crew', [])
+
+    # Safely slice cast_list
+    if hasattr(cast_list_raw, '__iter__'):
+        cast_list = list(cast_list_raw)[:3] if cast_list_raw else []
+    else:
+        cast_list = []
     
     favorite_actors = set()
     favorite_directors = set()
 
     # ✅ Collect actor and director names - Fixed attribute access
-    # Process cast names
-    for c in cast_list[:3]:
+    for c in cast_list:
         if isinstance(c, dict):
             name = c.get('name', '')
         else:
@@ -734,11 +742,17 @@ def recommend_movies(favorite_titles):
                     favorite_genres.add(name)
 
             # ✅ Collect actor and director names - Fixed attribute access
-            cast_list = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
+            cast_list_raw = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
             crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
             
             # Process cast names
-            for c in cast_list[:3]:
+            # Convert to list if needed and safely slice
+            if hasattr(cast_list_raw, '__iter__'):
+                cast_list = list(cast_list_raw)[:3] if cast_list_raw else []
+            else:
+                cast_list = []
+            
+            for c in cast_list:
                 if isinstance(c, dict):
                     name = c.get('name', '')
                 else:
@@ -787,7 +801,7 @@ def recommend_movies(favorite_titles):
             favorite_embeddings.append(emb)
             
             # ✅ Collect top 3 cast IDs
-            for c in cast_list[:3]:
+            for c in cast_list:
                 if isinstance(c, dict):
                     cast_id = c.get('id', 0)
                 else:
