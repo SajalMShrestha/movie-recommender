@@ -506,7 +506,15 @@ def construct_enriched_description(movie_details, credits, keywords=None):
 
     tagline = getattr(movie_details, 'tagline', '')
     overview = getattr(movie_details, 'overview', '')
-    keyword_list = [k.get('name', '') if isinstance(k, dict) else getattr(k, 'name', '') for k in (keywords or [])]
+    keyword_list = []
+    if keywords:
+        for k in keywords:
+            if isinstance(k, dict):
+                name = k.get('name', '')
+            else:
+                name = getattr(k, 'name', '')
+            if name:
+                keyword_list.append(name)
 
     enriched_text = f"{title} is a {', '.join([g for g in genres if g])} movie"
     if favorite_directors:
