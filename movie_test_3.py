@@ -316,7 +316,15 @@ def fetch_similar_movie_details(m_id):
         m_credits = movie_api.credits(m_id)
 
         # Robust genre, cast, director extraction
-        m_details.genres = getattr(m_details, 'genres', [])
+        genres = []
+        genres_list = getattr(m_details, 'genres', [])
+        for g in genres_list:
+            if isinstance(g, dict):
+                name = g.get('name', '')
+            else:
+                name = getattr(g, 'name', '')
+            if name:
+                genres.append(name)
         cast_list = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
         crew_list = m_credits.get('crew', []) if isinstance(m_credits, dict) else getattr(m_credits, 'crew', [])
         m_details.cast = cast_list[:3]
@@ -467,7 +475,15 @@ def infer_narrative_style(plot):
 
 def construct_enriched_description(movie_details, credits, keywords=None):
     title = getattr(movie_details, 'title', 'Unknown')
-    genres = [g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '') for g in getattr(movie_details, 'genres', [])]
+    genres = []
+    genres_list = getattr(movie_details, 'genres', [])
+    for g in genres_list:
+        if isinstance(g, dict):
+            name = g.get('name', '')
+        else:
+            name = getattr(g, 'name', '')
+        if name:
+            genres.append(name)
     
     # Handle credits safely
     if isinstance(credits, dict):
@@ -683,6 +699,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
 
 # --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
+    st.write("DEBUG: Starting recommend_movies with titles:", favorite_titles)
     favorite_genres = set()
     favorite_actors = set()
     favorite_directors = set()
