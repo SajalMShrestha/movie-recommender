@@ -24,6 +24,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 from torch import stack
 
+# Global cache for movie details to avoid repeated API calls
+MOVIE_DETAILS_CACHE = {}
+MOVIE_CREDITS_CACHE = {}
+
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
 SESSION_MAP_FILE = "session_map.csv"
@@ -723,10 +727,20 @@ def recommend_movies(favorite_titles):
             search_result = movie_api.search(title)
             if not search_result:
                 continue
-
-            details = movie_api.details(search_result[0].id)
-            credits = movie_api.credits(search_result[0].id)
-
+            
+            movie_id = search_result[0].id
+            
+            # Check cache first
+            if movie_id in MOVIE_DETAILS_CACHE:
+                details = MOVIE_DETAILS_CACHE[movie_id]
+                credits = MOVIE_CREDITS_CACHE[movie_id]
+            else:
+                # Fetch and cache
+                details = movie_api.details(movie_id)
+                credits = movie_api.credits(movie_id)
+                MOVIE_DETAILS_CACHE[movie_id] = details
+                MOVIE_CREDITS_CACHE[movie_id] = credits
+            
             # ✅ Collect genre names - Fixed attribute access
             genres_list = getattr(details, 'genres', [])
             for g in genres_list:
