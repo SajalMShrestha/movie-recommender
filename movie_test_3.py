@@ -707,7 +707,6 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
 
 # --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
-    st.write("DEBUG: Starting recommend_movies with titles:", favorite_titles)
     favorite_genres = set()
     favorite_actors = set()
     favorite_directors = set()
@@ -721,16 +720,13 @@ def recommend_movies(favorite_titles):
 
     for title in favorite_titles:
         try:
-            st.write(f"DEBUG: Processing {title}")
             search_result = movie_api.search(title)
             if not search_result:
                 continue
 
-            st.write(f"DEBUG: Getting details for {title}")
             details = movie_api.details(search_result[0].id)
             credits = movie_api.credits(search_result[0].id)
 
-            st.write(f"DEBUG: Processing genres for {title}")
             # ✅ Collect genre names - Fixed attribute access
             genres_list = getattr(details, 'genres', [])
             for g in genres_list:
@@ -827,8 +823,6 @@ def recommend_movies(favorite_titles):
                 
         except Exception as e:
             st.warning(f"Error processing {title}: {e}")
-            import traceback
-            st.error(f"Full traceback: {traceback.format_exc()}")
             continue
 
     # Build custom candidate pool using multiple strategies
@@ -1042,17 +1036,27 @@ def recommend_movies(favorite_titles):
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
     low_votes = 0
+
+    # Create a set of favorite movie titles for easy checking
+    favorite_titles_set = {title.lower() for title in favorite_titles}
+
     for m, s in scored:
         vote_count = getattr(m, 'vote_count', 0)
+        movie_title = getattr(m, 'title', 'Unknown Title')
+        
+        # Skip if this movie is in the user's favorites
+        if movie_title.lower() in favorite_titles_set:
+            continue
+        
         if vote_count < 100:
             if low_votes >= 2: 
                 continue
             low_votes += 1
-        title = getattr(m, 'title', 'Unknown Title')
-        top.append((title, s))
+        
+        top.append((movie_title, s))
         if len(top) == 10: 
             break
-    
+
     return top, candidate_movies
 
 st.title("🎬 Screen or Skip")
