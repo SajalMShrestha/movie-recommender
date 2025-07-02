@@ -586,10 +586,13 @@ def recommend_movies(favorite_titles):
         cast_dir = set(a.name for a in m.cast) | set(getattr(m,'directors',[]))
         score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors) / max(len(favorite_actors),1))
         try:
-            year_diff = datetime.now().year - int(m.release_date[:4])
-            if year_diff<=2: score += recommendation_weights['release_year']
-            elif year_diff<=5: score += recommendation_weights['release_year']*0.66
-            elif year_diff<=15: score += recommendation_weights['release_year']*0.33
+            # Safely get year_diff
+            release_date = getattr(m, 'release_date', None)
+            if release_date:
+                year_diff = datetime.now().year - int(release_date[:4])
+                if year_diff<=2: score += recommendation_weights['release_year']
+                elif year_diff<=5: score += recommendation_weights['release_year']*0.66
+                elif year_diff<=15: score += recommendation_weights['release_year']*0.33
         except: pass
         score += recommendation_weights['ratings'] * ((m.vote_average or 0)/10)
         score += recommendation_weights['mood_tone'] * get_mood_score(m.genres, user_prefs['preferred_moods'])
@@ -613,18 +616,23 @@ def recommend_movies(favorite_titles):
             score += recommendation_weights['trending_factor'] * movie_trend_score
 
         # Apply a small penalty for very old movies (e.g., released more than 20 years ago)
-        try:
-            release_year = int(m.release_date[:4])
+        release_date = getattr(m, 'release_date', None)
+        if release_date:
+            release_year = int(release_date[:4])
             if datetime.now().year - release_year > 20:
                 score -= 0.03  # small age penalty
+
+        try:
+            release_date = getattr(m, 'release_date', None)
+            if release_date:
+                release_year = int(release_date[:4])
+                user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
+                if 15 <= user_age_at_release <= 25:
+                    score += recommendation_weights['age_alignment']
+                elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
+                    score += recommendation_weights['age_alignment'] * 0.5
         except:
             pass
-        try:
-            release_year=int(m.release_date[:4])
-            user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
-            if 15<=user_age_at_release<=25: score += recommendation_weights['age_alignment']
-            elif 10<=user_age_at_release<15 or 25<user_age_at_release<=30: score += recommendation_weights['age_alignment']*0.5
-        except: pass
         return max(score, 0)
 
     scored = []
