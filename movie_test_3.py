@@ -509,15 +509,32 @@ def recommend_movies(favorite_titles):
             cast_list = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
             crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
             
-            favorite_actors.update([c['name'] for c in cast_list[:3]])
-            favorite_actors.update([c['name'] for c in crew_list if c.get('job') == 'Director'])
+            favorite_actors.update([
+                c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') 
+                for c in cast_list[:3]
+            ])
+            favorite_actors.update([
+                c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') 
+                for c in crew_list 
+                if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director'
+            ])
 
             # ✅ Collect genre IDs - Fixed attribute access
-            favorite_genre_ids.update([g['id'] for g in getattr(details, 'genres', [])])
+            favorite_genre_ids.update([
+                g.get('id', 0) if isinstance(g, dict) else getattr(g, 'id', 0) 
+                for g in getattr(details, 'genres', [])
+            ])
             # ✅ Collect top 3 cast IDs
-            favorite_cast_ids.update([c['id'] for c in cast_list[:3]])
+            favorite_cast_ids.update([
+                c.get('id', 0) if isinstance(c, dict) else getattr(c, 'id', 0) 
+                for c in cast_list[:3]
+            ])
             # ✅ Collect directors' IDs
-            favorite_director_ids.update([c['id'] for c in crew_list if c.get('job') == 'Director'])
+            favorite_director_ids.update([
+                c.get('id', 0) if isinstance(c, dict) else getattr(c, 'id', 0) 
+                for c in crew_list 
+                if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director'
+            ])
 
             # Fixed overview access
             overview = getattr(details, 'overview', '') or ''
