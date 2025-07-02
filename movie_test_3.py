@@ -715,6 +715,16 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
 
 # --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
+    # Check cache first
+    cache_key = "|".join(sorted(favorite_titles))
+    if "recommendation_cache" not in st.session_state:
+        st.session_state.recommendation_cache = {}
+    
+    if cache_key in st.session_state.recommendation_cache:
+        cached_result = st.session_state.recommendation_cache[cache_key]
+        st.write(f"✅ Using cached results")
+        return cached_result
+    
     favorite_genres = set()
     favorite_actors = set()
     favorite_directors = set()
@@ -1075,7 +1085,10 @@ def recommend_movies(favorite_titles):
         if len(top) == 10: 
             break
 
-    return top, candidate_movies
+    # Before returning, cache the result
+    result = (top, candidate_movies)
+    st.session_state.recommendation_cache[cache_key] = result
+    return result
 
 def fetch_multiple_movie_details(movie_ids):
     results = {}
