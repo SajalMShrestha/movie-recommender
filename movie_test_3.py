@@ -706,10 +706,12 @@ def recommend_movies(favorite_titles):
             # ✅ Collect genre names - Fixed attribute access
             genres_list = getattr(details, 'genres', [])
             for g in genres_list:
-                if hasattr(g, 'name'):
-                    favorite_genres.add(g.name)
-                elif isinstance(g, dict) and 'name' in g:
-                    favorite_genres.add(g['name'])
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    favorite_genres.add(name)
 
             # ✅ Collect actor and director names - Fixed attribute access
             cast_list = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
@@ -884,8 +886,16 @@ def recommend_movies(favorite_titles):
             score = 0.0
             
             # Fixed genres access
-            genres = {g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '') for g in getattr(m, 'genres', [])}
-            genres = {g for g in genres if g}  # Remove empty strings
+            genres = set()
+            genres_list = getattr(m, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    genres.add(name)
+            
             score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres) / max(len(favorite_genres),1))
             
             # Fixed cast and directors access - handle both dict and object formats
