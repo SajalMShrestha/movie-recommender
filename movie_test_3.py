@@ -262,7 +262,11 @@ mood_tone_map = {
 immature_genres = {"Family", "Animation", "Kids"}
 
 def get_maturity_penalty(genres):
-    return 0.15 if any(g['name'] in immature_genres for g in genres) else 0
+    for g in genres:
+        genre_name = g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '')
+        if genre_name in immature_genres:
+            return 0.15
+    return 0
 
 def get_mood_score(genres, preferred_moods):
     matched_moods = set()
@@ -654,7 +658,12 @@ def recommend_movies(favorite_titles):
             credits = movie_api.credits(search_result[0].id)
 
             # ✅ Collect genre names - Fixed attribute access
-            favorite_genres.update([g['name'] for g in getattr(details, 'genres', [])])
+            genres_list = getattr(details, 'genres', [])
+            for g in genres_list:
+                if hasattr(g, 'name'):
+                    favorite_genres.add(g.name)
+                elif isinstance(g, dict) and 'name' in g:
+                    favorite_genres.add(g['name'])
 
             # ✅ Collect actor and director names - Fixed attribute access
             cast_list = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
@@ -671,10 +680,12 @@ def recommend_movies(favorite_titles):
             ])
 
             # ✅ Collect genre IDs - Fixed attribute access
-            favorite_genre_ids.update([
-                g.get('id', 0) if isinstance(g, dict) else getattr(g, 'id', 0) 
-                for g in getattr(details, 'genres', [])
-            ])
+            for g in genres_list:
+                if hasattr(g, 'id'):
+                    favorite_genre_ids.add(g.id)
+                elif isinstance(g, dict) and 'id' in g:
+                    favorite_genre_ids.add(g['id'])
+
             # ✅ Collect top 3 cast IDs
             favorite_cast_ids.update([
                 c.get('id', 0) if isinstance(c, dict) else getattr(c, 'id', 0) 
