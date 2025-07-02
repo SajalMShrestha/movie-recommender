@@ -175,8 +175,12 @@ tmdb.debug = True
 movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
 
+@st.cache_resource
+def get_embedding_model():
+    return SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+
 # Initialize embedding model for semantic analysis
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+embedding_model = get_embedding_model()
 
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
@@ -892,7 +896,7 @@ def recommend_movies(favorite_titles):
     }
 
     candidate_movies = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
         for fut in concurrent.futures.as_completed(futures):
             try:
