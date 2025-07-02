@@ -267,9 +267,12 @@ def get_maturity_penalty(genres):
 def get_mood_score(genres, preferred_moods):
     matched_moods = set()
     for g in genres:
-        for mood, tags in mood_tone_map.items():
-            if g['name'] in tags:
-                matched_moods.add(mood)
+        # Handle both dict and object formats
+        genre_name = g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '')
+        if genre_name:
+            for mood, tags in mood_tone_map.items():
+                if genre_name in tags:
+                    matched_moods.add(mood)
     overlap = matched_moods & preferred_moods
     return len(overlap) / max(len(preferred_moods), 1)
 
@@ -303,30 +306,36 @@ cache = {}
 def fetch_similar_movie_details(m_id):
     if m_id in cache:
         return m_id, cache[m_id]
+        
     try:
         m_details = movie_api.details(m_id)
         m_credits = movie_api.credits(m_id)
 
-        m_details.genres = m_details.genres
-        m_details.cast = list(m_credits['cast'])[:3]
-        m_details.directors = [d['name'] for d in m_credits['crew'] if d['job'] == 'Director']
-        m_details.plot = m_details.overview or ""
+        # Robust genre, cast, director extraction
+        m_details.genres = getattr(m_details, 'genres', [])
+        cast_list = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
+        crew_list = m_credits.get('crew', []) if isinstance(m_credits, dict) else getattr(m_credits, 'crew', [])
+        m_details.cast = cast_list[:3]
+        m_details.directors = [c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') for c in crew_list if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director']
+        m_details.plot = getattr(m_details, 'overview', '') or ''
 
         # 🚫 Skip if plot is missing or too short to embed meaningfully
         if not m_details.plot or len(m_details.plot.split()) < 5:
-            st.write(f"⚠️ Skipping {m_details.title} due to missing/short plot")
+            st.write(f"⚠️ Skipping {getattr(m_details, 'title', 'Unknown')} due to missing/short plot")
+            cache[m_id] = None
             return m_id, None
 
         m_details.narrative_style = infer_narrative_style(m_details.plot)
 
         # ✅ Generate embedding
-        embedding = embedding_model.encode(m_details.plot)
+        embedding = embedding_model.encode(m_details.plot, convert_to_tensor=True)
 
         cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
 
     except Exception as e:
         st.warning(f"Embedding fetch failed for ID {m_id}: {e}")
+        cache[m_id] = None
         return m_id, None
 
 # Text analysis functions for narrative style detection
@@ -440,24 +449,34 @@ def infer_narrative_style(plot):
     }
 
 def construct_enriched_description(movie_details, credits, keywords=None):
-    title = movie_details.title
-    genres = [g['name'] for g in movie_details.genres]
-    cast = [c['name'] for c in credits.get('cast', [])[:3]]
-    directors = [c['name'] for c in credits.get('crew', []) if c['job'] == 'Director']
+    title = getattr(movie_details, 'title', 'Unknown')
+    genres = [g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '') for g in getattr(movie_details, 'genres', [])]
+    
+    # Handle credits safely
+    if isinstance(credits, dict):
+        cast_list = credits.get('cast', [])[:3]
+        crew_list = credits.get('crew', [])
+    else:
+        cast_list = getattr(credits, 'cast', [])[:3]
+        crew_list = getattr(credits, 'crew', [])
+    
+    cast = [c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') for c in cast_list]
+    directors = [c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') for c in crew_list if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director']
+    
     tagline = getattr(movie_details, 'tagline', '')
     overview = getattr(movie_details, 'overview', '')
-    keyword_list = [k['name'] for k in keywords] if keywords else []
+    keyword_list = [k.get('name', '') if isinstance(k, dict) else getattr(k, 'name', '') for k in (keywords or [])]
 
-    enriched_text = f"{title} is a {', '.join(genres)} movie"
+    enriched_text = f"{title} is a {', '.join([g for g in genres if g])} movie"
     if directors:
-        enriched_text += f" directed by {', '.join(directors)}"
+        enriched_text += f" directed by {', '.join([d for d in directors if d])}"
     if cast:
-        enriched_text += f", starring {', '.join(cast)}"
+        enriched_text += f", starring {', '.join([c for c in cast if c])}"
     enriched_text += ". "
     if tagline:
         enriched_text += f"Tagline: {tagline}. "
     if keyword_list:
-        enriched_text += f"Keywords: {', '.join(keyword_list)}. "
+        enriched_text += f"Keywords: {', '.join([k for k in keyword_list if k])}. "
     enriched_text += f"Plot: {overview}"
 
     return enriched_text
@@ -475,43 +494,60 @@ def recommend_movies(favorite_titles):
     favorite_embeddings = []
 
     for title in favorite_titles:
-        search_result = movie_api.search(title)
-        if not search_result:
-            continue
-
-        details = movie_api.details(search_result[0].id)
-        credits = movie_api.credits(search_result[0].id)
-
-        # ✅ Collect genre names
-        favorite_genres.update([g['name'] for g in details.genres])
-
-        # ✅ Collect actor and director names
-        favorite_actors.update([c['name'] for c in credits['cast'][:3]])
-        favorite_actors.update([c['name'] for c in credits['crew'] if c['job'] == 'Director'])
-
-        # ✅ Collect genre IDs
-        favorite_genre_ids.update([g['id'] for g in details.genres])
-        # ✅ Collect top 3 cast IDs
-        favorite_cast_ids.update([c['id'] for c in credits['cast'][:3]])
-        # ✅ Collect directors' IDs
-        favorite_director_ids.update([c['id'] for c in credits['crew'] if c['job'] == 'Director'])
-
-        plot_moods.add(infer_mood_from_plot(details.overview or ""))
-        narr_style = infer_narrative_style(details.overview or "")
-        for key in favorite_narrative_styles:
-            favorite_narrative_styles[key].append(narr_style.get(key, ""))
-        if details.release_date:
-            favorite_years.append(int(details.release_date[:4]))
-        
-        # ✅ Directly encode as torch tensor
-        emb = embedding_model.encode(details.overview or "", convert_to_tensor=True)
-        favorite_embeddings.append(emb)
-        
         try:
-            similar_list = movie_api.similar(details.id)
-            if similar_list:
-                candidate_movie_ids.update([m.id for m in similar_list if hasattr(m, 'id')])
-        except:
+            search_result = movie_api.search(title)
+            if not search_result:
+                continue
+
+            details = movie_api.details(search_result[0].id)
+            credits = movie_api.credits(search_result[0].id)
+
+            # ✅ Collect genre names - Fixed attribute access
+            favorite_genres.update([g['name'] for g in getattr(details, 'genres', [])])
+
+            # ✅ Collect actor and director names - Fixed attribute access
+            cast_list = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
+            crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
+            
+            favorite_actors.update([c['name'] for c in cast_list[:3]])
+            favorite_actors.update([c['name'] for c in crew_list if c.get('job') == 'Director'])
+
+            # ✅ Collect genre IDs - Fixed attribute access
+            favorite_genre_ids.update([g['id'] for g in getattr(details, 'genres', [])])
+            # ✅ Collect top 3 cast IDs
+            favorite_cast_ids.update([c['id'] for c in cast_list[:3]])
+            # ✅ Collect directors' IDs
+            favorite_director_ids.update([c['id'] for c in crew_list if c.get('job') == 'Director'])
+
+            # Fixed overview access
+            overview = getattr(details, 'overview', '') or ''
+            plot_moods.add(infer_mood_from_plot(overview))
+            narr_style = infer_narrative_style(overview)
+            for key in favorite_narrative_styles:
+                favorite_narrative_styles[key].append(narr_style.get(key, ""))
+            
+            # Fixed release_date access
+            release_date = getattr(details, 'release_date', None)
+            if release_date:
+                try:
+                    favorite_years.append(int(release_date[:4]))
+                except (ValueError, TypeError):
+                    pass
+            
+            # ✅ Directly encode as torch tensor
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+            
+            try:
+                similar_list = movie_api.similar(details.id)
+                if similar_list:
+                    candidate_movie_ids.update([m.id for m in similar_list if hasattr(m, 'id')])
+            except Exception as e:
+                st.warning(f"Could not get similar movies for {title}: {e}")
+                continue
+                
+        except Exception as e:
+            st.warning(f"Error processing {title}: {e}")
             continue
 
     # Confirm your Discover input
@@ -536,10 +572,13 @@ def recommend_movies(favorite_titles):
         weight_tensor = torch.tensor(weights).unsqueeze(1)
 
         # Stack embeddings (N x D)
-        stacked = stack(favorite_embeddings)
-
-        # Weighted average: multiply each embedding by its weight and sum along N
-        avg_fav_embedding = torch.sum(weight_tensor * stacked, dim=0)
+        try:
+            stacked = torch.stack(favorite_embeddings)
+            # Weighted average: multiply each embedding by its weight and sum along N
+            avg_fav_embedding = torch.sum(weight_tensor * stacked, dim=0)
+        except Exception as e:
+            st.warning(f"Error creating average embedding: {e}")
+            avg_fav_embedding = favorite_embeddings[0] if favorite_embeddings else None
     else:
         avg_fav_embedding = None
 
@@ -556,104 +595,164 @@ def recommend_movies(favorite_titles):
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
         for fut in concurrent.futures.as_completed(futures):
-            result = fut.result()
-            if result is None:
+            try:
+                result = fut.result()
+                if result is None:
+                    continue
+                mid, payload = result
+                if payload is None:
+                    continue
+                m, embedding = payload
+                if m is None or embedding is None:
+                    continue
+                # Fixed vote_count access
+                vote_count = getattr(m, 'vote_count', 0)
+                if vote_count < 20:
+                    continue
+                candidate_movies[mid] = (m, embedding)
+            except Exception as e:
+                st.warning(f"Error processing candidate movie: {e}")
                 continue
-            mid, payload = result
-            if payload is None:
-                continue
-            m, embedding = payload
-            if m is None or embedding is None:
-                continue
-            if getattr(m, 'vote_count', 0) < 20:
-                continue
-            candidate_movies[mid] = (m, embedding)
 
-    # Removed debug output
-    valid_titles = [m.title for m, emb in candidate_movies.values() if m and emb is not None]
+    # Get valid titles for debugging
+    valid_titles = [getattr(m, 'title', 'Unknown') for m, emb in candidate_movies.values() if m and emb is not None]
 
     if not candidate_movies:
         st.warning("No candidate movies with valid plots or embeddings were found.")
+        return [], {}
 
     # Fetch trending scores before computing movie scores
     trending_scores = get_trending_popularity(tmdb.api_key)
 
     def compute_score(m, avg_fav_embedding):
-        narrative = m.narrative_style
-        score = 0.0
-        genres = {g['name'] for g in m.genres}
-        score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres) / max(len(favorite_genres),1))
-        cast_dir = set(a.name for a in m.cast) | set(getattr(m,'directors',[]))
-        score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors) / max(len(favorite_actors),1))
         try:
-            # Safely get year_diff
-            release_date = getattr(m, 'release_date', None)
-            if release_date:
-                year_diff = datetime.now().year - int(release_date[:4])
-                if year_diff<=2: score += recommendation_weights['release_year']
-                elif year_diff<=5: score += recommendation_weights['release_year']*0.66
-                elif year_diff<=15: score += recommendation_weights['release_year']*0.33
-        except: pass
-        score += recommendation_weights['ratings'] * ((m.vote_average or 0)/10)
-        score += recommendation_weights['mood_tone'] * get_mood_score(m.genres, user_prefs['preferred_moods'])
+            narrative = getattr(m, 'narrative_style', {})
+            score = 0.0
+            
+            # Fixed genres access
+            genres = {g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '') for g in getattr(m, 'genres', [])}
+            genres = {g for g in genres if g}  # Remove empty strings
+            score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres) / max(len(favorite_genres),1))
+            
+            # Fixed cast and directors access - handle both dict and object formats
+            cast_names = set()
+            cast_list = getattr(m, 'cast', [])
+            for actor in cast_list:
+                if isinstance(actor, dict):
+                    name = actor.get('name', '')
+                else:
+                    name = getattr(actor, 'name', '')
+                if name:
+                    cast_names.add(name)
+            
+            directors = getattr(m, 'directors', [])
+            director_names = set(directors) if isinstance(directors, list) else set()
+            
+            cast_dir = cast_names | director_names
+            score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors) / max(len(favorite_actors),1))
+            
+            # Fixed release_date access
+            try:
+                release_date = getattr(m, 'release_date', None)
+                if release_date:
+                    year_diff = datetime.now().year - int(release_date[:4])
+                    if year_diff<=2: score += recommendation_weights['release_year']
+                    elif year_diff<=5: score += recommendation_weights['release_year']*0.66
+                    elif year_diff<=15: score += recommendation_weights['release_year']*0.33
+            except (ValueError, TypeError, AttributeError):
+                pass
+            
+            # Fixed vote_average access
+            vote_average = getattr(m, 'vote_average', 0) or 0
+            score += recommendation_weights['ratings'] * (vote_average/10)
+            
+            # Fixed genres access for mood score
+            movie_genres = getattr(m, 'genres', [])
+            score += recommendation_weights['mood_tone'] * get_mood_score(movie_genres, user_prefs['preferred_moods'])
 
-        narrative = infer_narrative_style(m.plot)
-        narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
-        score += recommendation_weights['narrative_style'] * narrative_match_score
+            # Fixed plot access
+            plot = getattr(m, 'plot', '') or getattr(m, 'overview', '') or ''
+            narrative = infer_narrative_style(plot)
+            narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
+            score += recommendation_weights['narrative_style'] * narrative_match_score
 
-        # --- New: Embedding Similarity ---
-        candidate_embedding = candidate_movies[m.id][1]  # (movie_obj, embedding)
-        embedding_sim_score = float(cos_sim(candidate_embedding, avg_fav_embedding))
+            # --- Fixed Embedding Similarity ---
+            if avg_fav_embedding is not None:
+                movie_id = getattr(m, 'id', None)
+                if movie_id and movie_id in candidate_movies:
+                    candidate_data = candidate_movies[movie_id]
+                    if len(candidate_data) >= 2 and candidate_data[1] is not None:
+                        candidate_embedding = candidate_data[1]  # (movie_obj, embedding)
+                        try:
+                            embedding_sim_score = float(cos_sim(candidate_embedding, avg_fav_embedding))
+                            score += recommendation_weights['embedding_similarity'] * embedding_sim_score
+                        except Exception as e:
+                            st.warning(f"Error computing embedding similarity: {e}")
 
-        score += recommendation_weights['embedding_similarity'] * embedding_sim_score
+            movie_trend_score = trending_scores.get(getattr(m, 'id', 0), 0)
+            mood_match_score = get_mood_score(movie_genres, user_prefs['preferred_moods'])
+            genre_overlap_score = len(genres & favorite_genres) / max(len(favorite_genres), 1)
 
-        movie_trend_score = trending_scores.get(m.id, 0)
-        mood_match_score = get_mood_score(m.genres, user_prefs['preferred_moods'])
-        genre_overlap_score = len({g['name'] for g in m.genres} & favorite_genres) / max(len(favorite_genres), 1)
+            # Only apply trending boost if both mood and genre are somewhat aligned
+            if mood_match_score > 0.3 and genre_overlap_score > 0.2:
+                score += recommendation_weights['trending_factor'] * movie_trend_score
 
-        # Only apply trending boost if both mood and genre are somewhat aligned
-        if mood_match_score > 0.3 and genre_overlap_score > 0.2:
-            score += recommendation_weights['trending_factor'] * movie_trend_score
+            # Apply a small penalty for very old movies
+            try:
+                if release_date:
+                    release_year = int(release_date[:4])
+                    if datetime.now().year - release_year > 20:
+                        score -= 0.03  # small age penalty
+            except (ValueError, TypeError):
+                pass
 
-        # Apply a small penalty for very old movies (e.g., released more than 20 years ago)
-        release_date = getattr(m, 'release_date', None)
-        if release_date:
-            release_year = int(release_date[:4])
-            if datetime.now().year - release_year > 20:
-                score -= 0.03  # small age penalty
-
-        try:
-            release_date = getattr(m, 'release_date', None)
-            if release_date:
-                release_year = int(release_date[:4])
-                user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
-                if 15 <= user_age_at_release <= 25:
-                    score += recommendation_weights['age_alignment']
-                elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
-                    score += recommendation_weights['age_alignment'] * 0.5
-        except:
-            pass
-        return max(score, 0)
+            # Age alignment scoring
+            try:
+                if release_date:
+                    release_year = int(release_date[:4])
+                    user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
+                    if 15 <= user_age_at_release <= 25:
+                        score += recommendation_weights['age_alignment']
+                    elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
+                        score += recommendation_weights['age_alignment'] * 0.5
+            except (ValueError, TypeError):
+                pass
+                
+            return max(score, 0)
+        except Exception as e:
+            st.warning(f"Error computing score for movie: {e}")
+            return 0
 
     scored = []
     for movie_obj, embedding in candidate_movies.values():
         if movie_obj is None or embedding is None:
             continue
-        score = compute_score(movie_obj, avg_fav_embedding) + min(movie_obj.vote_count, 500) / 50000
-        scored.append((movie_obj, score))
+        try:
+            score = compute_score(movie_obj, avg_fav_embedding)
+            vote_count = getattr(movie_obj, 'vote_count', 0)
+            score += min(vote_count, 500) / 50000
+            scored.append((movie_obj, score))
+        except Exception as e:
+            st.warning(f"Error scoring movie {getattr(movie_obj, 'title', 'Unknown')}: {e}")
+            continue
 
     st.write(f"✅ Candidate movies count: {len(candidate_movies)}")
     st.write(f"✅ Valid scored movies: {len(scored)}")
 
     scored.sort(key=lambda x:x[1], reverse=True)
     top = []
-    low_votes=0
+    low_votes = 0
     for m, s in scored:
-        if m.vote_count<100:
-            if low_votes>=2: continue
-            low_votes+=1
-        top.append((m.title, s))
-        if len(top)==10: break
+        vote_count = getattr(m, 'vote_count', 0)
+        if vote_count < 100:
+            if low_votes >= 2: 
+                continue
+            low_votes += 1
+        title = getattr(m, 'title', 'Unknown Title')
+        top.append((title, s))
+        if len(top) == 10: 
+            break
+    
     return top, candidate_movies
 
 st.title("🎬 Screen or Skip")
