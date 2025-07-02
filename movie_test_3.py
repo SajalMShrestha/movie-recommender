@@ -320,7 +320,20 @@ def fetch_similar_movie_details(m_id):
         cast_list = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
         crew_list = m_credits.get('crew', []) if isinstance(m_credits, dict) else getattr(m_credits, 'crew', [])
         m_details.cast = cast_list[:3]
-        m_details.directors = [c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') for c in crew_list if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director']
+        directors = []
+        for c in crew_list:
+            is_director = False
+            name = ''
+            if isinstance(c, dict):
+                is_director = c.get('job', '') == 'Director'
+                name = c.get('name', '')
+            else:
+                is_director = getattr(c, 'job', '') == 'Director'
+                name = getattr(c, 'name', '')
+            
+            if is_director and name:
+                directors.append(name)
+        m_details.directors = directors
         m_details.plot = getattr(m_details, 'overview', '') or ''
 
         # 🚫 Skip if plot is missing or too short to embed meaningfully
@@ -464,18 +477,42 @@ def construct_enriched_description(movie_details, credits, keywords=None):
         cast_list = getattr(credits, 'cast', [])[:3]
         crew_list = getattr(credits, 'crew', [])
     
-    cast = [c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') for c in cast_list]
-    directors = [c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') for c in crew_list if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director']
-    
+    favorite_actors = set()
+    favorite_directors = set()
+
+    # ✅ Collect actor and director names - Fixed attribute access
+    # Process cast names
+    for c in cast_list[:3]:
+        if isinstance(c, dict):
+            name = c.get('name', '')
+        else:
+            name = getattr(c, 'name', '')
+        if name:
+            favorite_actors.add(name)
+
+    # Process director names
+    for c in crew_list:
+        is_director = False
+        name = ''
+        if isinstance(c, dict):
+            is_director = c.get('job', '') == 'Director'
+            name = c.get('name', '')
+        else:
+            is_director = getattr(c, 'job', '') == 'Director'
+            name = getattr(c, 'name', '')
+        
+        if is_director and name:
+            favorite_directors.add(name)
+
     tagline = getattr(movie_details, 'tagline', '')
     overview = getattr(movie_details, 'overview', '')
     keyword_list = [k.get('name', '') if isinstance(k, dict) else getattr(k, 'name', '') for k in (keywords or [])]
 
     enriched_text = f"{title} is a {', '.join([g for g in genres if g])} movie"
-    if directors:
-        enriched_text += f" directed by {', '.join([d for d in directors if d])}"
-    if cast:
-        enriched_text += f", starring {', '.join([c for c in cast if c])}"
+    if favorite_directors:
+        enriched_text += f" directed by {', '.join([d for d in favorite_directors if d])}"
+    if favorite_actors:
+        enriched_text += f", starring {', '.join([c for c in favorite_actors if c])}"
     enriched_text += ". "
     if tagline:
         enriched_text += f"Tagline: {tagline}. "
@@ -640,6 +677,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
 def recommend_movies(favorite_titles):
     favorite_genres = set()
     favorite_actors = set()
+    favorite_directors = set()
     # New sets for IDs
     favorite_genre_ids = set()
     favorite_cast_ids = set()
@@ -669,15 +707,28 @@ def recommend_movies(favorite_titles):
             cast_list = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
             crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
             
-            favorite_actors.update([
-                c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') 
-                for c in cast_list[:3]
-            ])
-            favorite_actors.update([
-                c.get('name', '') if isinstance(c, dict) else getattr(c, 'name', '') 
-                for c in crew_list 
-                if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director'
-            ])
+            # Process cast names
+            for c in cast_list[:3]:
+                if isinstance(c, dict):
+                    name = c.get('name', '')
+                else:
+                    name = getattr(c, 'name', '')
+                if name:
+                    favorite_actors.add(name)
+
+            # Process director names
+            for c in crew_list:
+                is_director = False
+                name = ''
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    name = c.get('name', '')
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    name = getattr(c, 'name', '')
+                
+                if is_director and name:
+                    favorite_directors.add(name)
 
             # ✅ Collect genre IDs - Fixed attribute access
             for g in genres_list:
@@ -686,6 +737,25 @@ def recommend_movies(favorite_titles):
                 elif isinstance(g, dict) and 'id' in g:
                     favorite_genre_ids.add(g['id'])
 
+            # Fixed overview access
+            overview = getattr(details, 'overview', '') or ''
+            plot_moods.add(infer_mood_from_plot(overview))
+            narr_style = infer_narrative_style(overview)
+            for key in favorite_narrative_styles:
+                favorite_narrative_styles[key].append(narr_style.get(key, ""))
+            
+            # Fixed release_date access
+            release_date = getattr(details, 'release_date', None)
+            if release_date:
+                try:
+                    favorite_years.append(int(release_date[:4]))
+                except (ValueError, TypeError):
+                    pass
+            
+            # ✅ Directly encode as torch tensor
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+            
             # ✅ Collect top 3 cast IDs
             for c in cast_list[:3]:
                 if isinstance(c, dict):
@@ -707,25 +777,6 @@ def recommend_movies(favorite_titles):
                 
                 if is_director and person_id:
                     favorite_director_ids.add(person_id)
-
-            # Fixed overview access
-            overview = getattr(details, 'overview', '') or ''
-            plot_moods.add(infer_mood_from_plot(overview))
-            narr_style = infer_narrative_style(overview)
-            for key in favorite_narrative_styles:
-                favorite_narrative_styles[key].append(narr_style.get(key, ""))
-            
-            # Fixed release_date access
-            release_date = getattr(details, 'release_date', None)
-            if release_date:
-                try:
-                    favorite_years.append(int(release_date[:4]))
-                except (ValueError, TypeError):
-                    pass
-            
-            # ✅ Directly encode as torch tensor
-            emb = embedding_model.encode(overview, convert_to_tensor=True)
-            favorite_embeddings.append(emb)
             
             # We'll build the candidate pool after processing all favorites
             pass
