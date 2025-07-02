@@ -1077,6 +1077,23 @@ def recommend_movies(favorite_titles):
 
     return top, candidate_movies
 
+def fetch_multiple_movie_details(movie_ids):
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_id = {
+            executor.submit(fetch_similar_movie_details, mid): mid 
+            for mid in movie_ids[:50]  # Limit to first 50
+        }
+        for future in concurrent.futures.as_completed(future_to_id):
+            mid = future_to_id[future]
+            try:
+                result = future.result()
+                if result and result[1]:
+                    results[mid] = result[1]
+            except:
+                pass
+    return results
+
 st.title("🎬 Screen or Skip")
 
 # Setup flags
