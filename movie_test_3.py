@@ -561,7 +561,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
     candidate_movie_ids = set()
     
     # Strategy 1: Discover by Genre (40-60 movies)
-    st.write("🎭 Discovering movies by genre...")
+    # st.write("🎭 Discovering movies by genre...")
     for genre_id in list(favorite_genre_ids)[:3]:  # Top 3 genres to avoid too much overlap
         try:
             # Get popular movies in this genre
@@ -581,7 +581,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
             st.warning(f"Error discovering by genre {genre_id}: {e}")
     
     # Strategy 2: Discover by Cast (30-40 movies)
-    st.write("🎬 Discovering movies by favorite actors...")
+    # st.write("🎬 Discovering movies by favorite actors...")
     for person_id in list(favorite_cast_ids)[:5]:  # Top 5 actors
         try:
             url = f"https://api.themoviedb.org/3/discover/movie"
@@ -600,7 +600,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
             st.warning(f"Error discovering by cast {person_id}: {e}")
     
     # Strategy 3: Discover by Directors (20-30 movies)
-    st.write("🎥 Discovering movies by favorite directors...")
+    # st.write("🎥 Discovering movies by favorite directors...")
     for person_id in list(favorite_director_ids)[:3]:  # Top 3 directors
         try:
             url = f"https://api.themoviedb.org/3/discover/movie"
@@ -619,7 +619,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
             st.warning(f"Error discovering by director {person_id}: {e}")
     
     # Strategy 4: Year-based Discovery (20-30 movies)
-    st.write("📅 Discovering movies from similar time periods...")
+    # st.write("📅 Discovering movies from similar time periods...")
     if favorite_years:
         # Get movies from the same decades as user's favorites
         decades = set()
@@ -646,7 +646,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
                 st.warning(f"Error discovering by decade {decade_start}: {e}")
     
     # Strategy 5: Multi-criteria Discovery (20-30 movies)
-    st.write("🎯 Discovering with combined criteria...")
+    # st.write("🎯 Discovering with combined criteria...")
     try:
         # Combine top genres and cast for more targeted results
         top_genres = ",".join(str(id) for id in list(favorite_genre_ids)[:2])
@@ -670,7 +670,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
         st.warning(f"Error with multi-criteria discovery: {e}")
     
     # Strategy 6: Trending/Popular Backup (10-20 movies)
-    st.write("📈 Adding trending movies as backup...")
+    # st.write("📈 Adding trending movies as backup...")
     try:
         # Add some trending movies to ensure we have enough candidates
         url = f"https://api.themoviedb.org/3/trending/movie/week"
@@ -683,7 +683,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
         st.warning(f"Error getting trending movies: {e}")
     
     # Strategy 7: High-rated movies in favorite genres (backup)
-    st.write("⭐ Adding highly-rated movies in favorite genres...")
+    # st.write("⭐ Adding highly-rated movies in favorite genres...")
     for genre_id in list(favorite_genre_ids)[:2]:
         try:
             url = f"https://api.themoviedb.org/3/discover/movie"
@@ -702,7 +702,7 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
         except Exception as e:
             st.warning(f"Error getting high-rated movies for genre {genre_id}: {e}")
     
-    st.write(f"🎬 Built candidate pool with {len(candidate_movie_ids)} movies")
+    # st.write(f"🎬 Built candidate pool with {len(candidate_movie_ids)} movies")
     return candidate_movie_ids
 
 # --- Recommendation Logic ---
