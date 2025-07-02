@@ -23,7 +23,6 @@ import uuid
 import gspread
 from google.oauth2.service_account import Credentials
 from torch import stack
-import torch
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -173,7 +172,7 @@ movie_api = Movie()
 sia = SentimentIntensityAnalyzer()
 
 # Initialize embedding model for semantic analysis
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
@@ -301,7 +300,7 @@ def compute_narrative_similarity(candidate_style, reference_styles):
     return similarity / len(candidate_style)
 
 cache = {}
-def fetch_candidate_movie_details(m_id):
+def fetch_similar_movie_details(m_id):
     if m_id in cache:
         return m_id, cache[m_id]
     try:
@@ -489,30 +488,45 @@ def recommend_movies(favorite_titles):
         embedding = generate_embedding(enriched_plot)
         favorite_embeddings.append(embedding)
         
-        # --- New Discover API pooling ---
         try:
-            params = {
-                "api_key": tmdb.api_key,
-                "with_genres": ",".join([
-                    str(g["id"]) if isinstance(g, dict) and "id" in g else str(g.id)
-                    for g in details.genres if g and (isinstance(g, dict) or hasattr(g, "id"))
-                ]),
-                "sort_by": "popularity.desc",
-                "language": "en-US",
-                "page": 1,
-                "primary_release_date.gte": "1980-01-01"
-            }
-
-            response = requests.get("https://api.themoviedb.org/3/discover/movie", params=params)
-            response.raise_for_status()
-            data = response.json().get("results", [])
-            for m in data:
-                if m.get("id"):
-                    candidate_movie_ids.add(m["id"])
-
-        except Exception as e:
-            st.warning(f"Discover failed for {title}: {e}")
+            similar_list = movie_api.similar(details.id)
+            if similar_list:
+                candidate_movie_ids.update([m.id for m in similar_list if hasattr(m, 'id')])
+        except:
             continue
+
+    favorite_embeddings = []
+    for title in favorite_titles:
+        results = movie_api.search(title)
+        if results:
+            details = movie_api.details(results[0].id)
+            overview = details.overview or ""
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+
+    if favorite_embeddings:
+        import torch
+
+        # Define raw weights for positions 1 to 5
+        raw_weights = [0.3, 0.25, 0.2, 0.15, 0.1]
+
+        # Trim weights if fewer movies
+        weights = raw_weights[:len(favorite_embeddings)]
+
+        # Normalize so they sum to 1
+        weight_sum = sum(weights)
+        weights = [w / weight_sum for w in weights]
+
+        # Convert to tensor for broadcasting
+        weight_tensor = torch.tensor(weights).unsqueeze(1)
+
+        # Stack embeddings (N x D)
+        stacked = stack(favorite_embeddings)
+
+        # Weighted average: multiply each embedding by its weight and sum along N
+        avg_fav_embedding = torch.sum(weight_tensor * stacked, dim=0)
+    else:
+        avg_fav_embedding = None
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
@@ -525,7 +539,7 @@ def recommend_movies(favorite_titles):
 
     candidate_movies = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_candidate_movie_details, mid): mid for mid in candidate_movie_ids}
+        futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
         for fut in concurrent.futures.as_completed(futures):
             result = fut.result()
             if result is None:
@@ -597,16 +611,6 @@ def recommend_movies(favorite_titles):
             elif 10<=user_age_at_release<15 or 25<user_age_at_release<=30: score += recommendation_weights['age_alignment']*0.5
         except: pass
         return max(score, 0)
-
-    # --- Weighted average embedding ---
-    raw_weights = [0.3, 0.25, 0.2, 0.15, 0.1]
-    weights = raw_weights[:len(favorite_embeddings)]
-    weight_sum = sum(weights)
-    weights = [w / weight_sum for w in weights]
-
-    weight_tensor = torch.tensor(weights).unsqueeze(1)
-    stacked = stack([torch.tensor(emb) for emb in favorite_embeddings])
-    avg_fav_embedding = torch.sum(weight_tensor * stacked, dim=0)
 
     scored = []
     for movie_obj, embedding in candidate_movies.values():
