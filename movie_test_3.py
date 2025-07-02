@@ -687,16 +687,26 @@ def recommend_movies(favorite_titles):
                     favorite_genre_ids.add(g['id'])
 
             # ✅ Collect top 3 cast IDs
-            favorite_cast_ids.update([
-                c.get('id', 0) if isinstance(c, dict) else getattr(c, 'id', 0) 
-                for c in cast_list[:3]
-            ])
-            # ✅ Collect directors' IDs
-            favorite_director_ids.update([
-                c.get('id', 0) if isinstance(c, dict) else getattr(c, 'id', 0) 
-                for c in crew_list 
-                if (c.get('job') if isinstance(c, dict) else getattr(c, 'job', '')) == 'Director'
-            ])
+            for c in cast_list[:3]:
+                if isinstance(c, dict):
+                    cast_id = c.get('id', 0)
+                else:
+                    cast_id = getattr(c, 'id', 0)
+                if cast_id:
+                    favorite_cast_ids.add(cast_id)
+
+            # ✅ Collect directors' IDs  
+            for c in crew_list:
+                is_director = False
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    person_id = c.get('id', 0)
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    person_id = getattr(c, 'id', 0)
+                
+                if is_director and person_id:
+                    favorite_director_ids.add(person_id)
 
             # Fixed overview access
             overview = getattr(details, 'overview', '') or ''
