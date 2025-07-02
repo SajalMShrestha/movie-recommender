@@ -864,8 +864,8 @@ def recommend_movies(favorite_titles):
 
     st.write(f"✅ Custom candidate pool size: {len(candidate_movie_ids)} movies")
 
-    # Limit to first 100 candidates
-    candidate_movie_ids = list(candidate_movie_ids)[:100]
+    # Limit to first 150 candidates
+    candidate_movie_ids = list(candidate_movie_ids)[:150]
 
     # Confirm your Discover input (keeping for reference)
     with_genres = ",".join(str(id) for id in favorite_genre_ids)
