@@ -464,7 +464,12 @@ def construct_enriched_description(movie_details, credits, keywords=None):
 
 # --- Recommendation Logic ---
 def recommend_movies(favorite_titles):
-    favorite_genres, favorite_actors = set(), set()
+    favorite_genres = set()
+    favorite_actors = set()
+    # New sets for IDs
+    favorite_genre_ids = set()
+    favorite_cast_ids = set()
+    favorite_director_ids = set()
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
     favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
     favorite_embeddings = []
@@ -473,11 +478,24 @@ def recommend_movies(favorite_titles):
         search_result = movie_api.search(title)
         if not search_result:
             continue
+
         details = movie_api.details(search_result[0].id)
         credits = movie_api.credits(search_result[0].id)
+
+        # ✅ Collect genre names
         favorite_genres.update([g['name'] for g in details.genres])
-        favorite_actors.update([c['name'] for c in list(credits['cast'])[:3]])
-        favorite_actors.update([d['name'] for d in credits['crew'] if d['job']=='Director'])
+
+        # ✅ Collect actor and director names
+        favorite_actors.update([c['name'] for c in credits['cast'][:3]])
+        favorite_actors.update([c['name'] for c in credits['crew'] if c['job'] == 'Director'])
+
+        # ✅ Collect genre IDs
+        favorite_genre_ids.update([g['id'] for g in details.genres])
+        # ✅ Collect top 3 cast IDs
+        favorite_cast_ids.update([c['id'] for c in credits['cast'][:3]])
+        # ✅ Collect directors' IDs
+        favorite_director_ids.update([c['id'] for c in credits['crew'] if c['job'] == 'Director'])
+
         plot_moods.add(infer_mood_from_plot(details.overview or ""))
         narr_style = infer_narrative_style(details.overview or "")
         for key in favorite_narrative_styles:
@@ -495,6 +513,11 @@ def recommend_movies(favorite_titles):
                 candidate_movie_ids.update([m.id for m in similar_list if hasattr(m, 'id')])
         except:
             continue
+
+    # Confirm your Discover input
+    with_genres = ",".join(str(id) for id in favorite_genre_ids)
+    with_cast = ",".join(str(id) for id in favorite_cast_ids)
+    with_crew = ",".join(str(id) for id in favorite_director_ids)
 
     if favorite_embeddings:
         import torch
@@ -559,9 +582,9 @@ def recommend_movies(favorite_titles):
         narrative = m.narrative_style
         score = 0.0
         genres = {g['name'] for g in m.genres}
-        score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres)/max(len(favorite_genres),1))
+        score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres) / max(len(favorite_genres),1))
         cast_dir = set(a.name for a in m.cast) | set(getattr(m,'directors',[]))
-        score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors)/max(len(favorite_actors),1))
+        score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors) / max(len(favorite_actors),1))
         try:
             year_diff = datetime.now().year - int(m.release_date[:4])
             if year_diff<=2: score += recommendation_weights['release_year']
