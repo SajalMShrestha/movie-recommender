@@ -713,13 +713,16 @@ def recommend_movies(favorite_titles):
 
     for title in favorite_titles:
         try:
+            st.write(f"DEBUG: Processing {title}")
             search_result = movie_api.search(title)
             if not search_result:
                 continue
 
+            st.write(f"DEBUG: Getting details for {title}")
             details = movie_api.details(search_result[0].id)
             credits = movie_api.credits(search_result[0].id)
 
+            st.write(f"DEBUG: Processing genres for {title}")
             # ✅ Collect genre names - Fixed attribute access
             genres_list = getattr(details, 'genres', [])
             for g in genres_list:
@@ -810,6 +813,8 @@ def recommend_movies(favorite_titles):
                 
         except Exception as e:
             st.warning(f"Error processing {title}: {e}")
+            import traceback
+            st.error(f"Full traceback: {traceback.format_exc()}")
             continue
 
     # Build custom candidate pool using multiple strategies
