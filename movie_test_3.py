@@ -393,8 +393,9 @@ def infer_setting_context(plot):
 # Generate embeddings for semantic similarity
 def generate_embedding(text):
     if not text:
-        return np.zeros(384)  # Embedding size for MiniLM
-    return embedding_model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
+        import torch
+        return torch.zeros(384)  # same size, but torch tensor
+    return embedding_model.encode(text, convert_to_tensor=True, normalize_embeddings=True)
 
 def cosine_similarity(vec1, vec2):
     return dot(vec1, vec2) / (norm(vec1) * norm(vec2) + 1e-8)
