@@ -23,6 +23,9 @@ import uuid
 import gspread
 from google.oauth2.service_account import Credentials
 from torch import stack
+import torch
+from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Global cache for movie details to avoid repeated API calls
 MOVIE_DETAILS_CACHE = {}
@@ -235,16 +238,16 @@ if "favorite_movie_posters" not in st.session_state:
 
 # --- Updated recommendation weights ---
 recommendation_weights = {
-    "mood_tone": 0.224,
-    "genre_similarity": 0.128,
-    "cast_crew": 0.120,
-    "narrative_style": 0.080,
-    "ratings": 0.064,
-    "trending_factor": 0.080,
-    "release_year": 0.040,
-    "discovery_boost": 0.064,
+    "mood_tone": 0.15,
+    "genre_similarity": 0.10,
+    "cast_crew": 0.10,
+    "narrative_style": 0.08,
+    "ratings": 0.05,
+    "trending_factor": 0.07,
+    "release_year": 0.05,
+    "discovery_boost": 0.05,
     "age_alignment": 0.0,
-    "embedding_similarity": 0.20
+    "embedding_similarity": 0.35  # Increased but will use cluster-based approach
 }
 
 streaming_platform_priority = {
@@ -713,7 +716,88 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
     # st.write(f"🎬 Built candidate pool with {len(candidate_movie_ids)} movies")
     return candidate_movie_ids
 
-# --- Recommendation Logic ---
+# NEW: Multi-cluster approach for preserving diverse taste profiles
+def identify_taste_clusters(favorite_embeddings, favorite_movies_info):
+    """
+    Identify distinct taste clusters from user's favorite movies
+    Returns cluster centers and movie assignments
+    """
+    if len(favorite_embeddings) <= 2:
+        # Too few movies to cluster meaningfully
+        return None, None
+    
+    # Convert embeddings to numpy array
+    embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
+    
+    # Determine optimal number of clusters (2-3 for 5 movies)
+    n_clusters = min(3, max(2, len(favorite_embeddings) // 2))
+    
+    # Perform clustering
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(embeddings_array)
+    cluster_centers = kmeans.cluster_centers_
+    
+    # Convert back to torch tensors
+    cluster_centers_torch = [torch.from_numpy(center) for center in cluster_centers]
+    
+    return cluster_centers_torch, cluster_labels
+
+def compute_multi_cluster_similarity(candidate_embedding, cluster_centers):
+    """
+    Compute similarity to multiple cluster centers
+    Returns the maximum similarity (best match to any cluster)
+    """
+    if cluster_centers is None:
+        return 0.0
+    
+    max_similarity = 0.0
+    for center in cluster_centers:
+        similarity = float(cos_sim(candidate_embedding, center))
+        max_similarity = max(max_similarity, similarity)
+    
+    return max_similarity
+
+def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years):
+    """
+    Analyze how diverse the user's taste is
+    Returns a diversity score and taste profile
+    """
+    diversity_metrics = {
+        "genre_diversity": len(favorite_genres) / 5.0,  # Normalized by max possible
+        "temporal_spread": 0.0,
+        "embedding_variance": 0.0,
+        "taste_profile": "focused"  # or "diverse" or "eclectic"
+    }
+    
+    # Temporal spread
+    if len(favorite_years) > 1:
+        year_range = max(favorite_years) - min(favorite_years)
+        diversity_metrics["temporal_spread"] = min(year_range / 50.0, 1.0)  # Normalize by 50 years
+    
+    # Embedding variance
+    if len(favorite_embeddings) > 1:
+        embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
+        pairwise_similarities = cosine_similarity(embeddings_array)
+        # Get off-diagonal elements (excluding self-similarity)
+        mask = ~np.eye(pairwise_similarities.shape[0], dtype=bool)
+        avg_similarity = pairwise_similarities[mask].mean()
+        diversity_metrics["embedding_variance"] = 1.0 - avg_similarity
+    
+    # Determine taste profile
+    overall_diversity = (diversity_metrics["genre_diversity"] + 
+                        diversity_metrics["temporal_spread"] + 
+                        diversity_metrics["embedding_variance"]) / 3.0
+    
+    if overall_diversity < 0.3:
+        diversity_metrics["taste_profile"] = "focused"
+    elif overall_diversity < 0.6:
+        diversity_metrics["taste_profile"] = "diverse"
+    else:
+        diversity_metrics["taste_profile"] = "eclectic"
+    
+    return diversity_metrics
+
+# --- Enhanced Recommendation Logic ---
 def recommend_movies(favorite_titles):
     # Check cache first
     cache_key = "|".join(sorted(favorite_titles))
@@ -735,6 +819,7 @@ def recommend_movies(favorite_titles):
     candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
     favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
     favorite_embeddings = []
+    favorite_movies_info = []  # Store full movie info for clustering analysis
 
     for title in favorite_titles:
         try:
@@ -755,6 +840,13 @@ def recommend_movies(favorite_titles):
                 MOVIE_DETAILS_CACHE[movie_id] = details
                 MOVIE_CREDITS_CACHE[movie_id] = credits
             
+            # Store movie info for clustering
+            movie_info = {
+                "title": title,
+                "genres": [],
+                "year": None
+            }
+            
             # ✅ Collect genre names - Fixed attribute access
             genres_list = getattr(details, 'genres', [])
             for g in genres_list:
@@ -764,6 +856,7 @@ def recommend_movies(favorite_titles):
                     name = getattr(g, 'name', '')
                 if name:
                     favorite_genres.add(name)
+                    movie_info["genres"].append(name)
 
             # ✅ Collect actor and director names - Fixed attribute access
             cast_list_raw = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
@@ -816,13 +909,16 @@ def recommend_movies(favorite_titles):
             release_date = getattr(details, 'release_date', None)
             if release_date:
                 try:
-                    favorite_years.append(int(release_date[:4]))
+                    year = int(release_date[:4])
+                    favorite_years.append(year)
+                    movie_info["year"] = year
                 except (ValueError, TypeError):
                     pass
             
             # ✅ Directly encode as torch tensor
             emb = embedding_model.encode(overview, convert_to_tensor=True)
             favorite_embeddings.append(emb)
+            favorite_movies_info.append(movie_info)
             
             # ✅ Collect top 3 cast IDs
             for c in cast_list:
@@ -867,37 +963,15 @@ def recommend_movies(favorite_titles):
     # Limit to first 150 candidates
     candidate_movie_ids = list(candidate_movie_ids)[:150]
 
-    # Confirm your Discover input (keeping for reference)
-    with_genres = ",".join(str(id) for id in favorite_genre_ids)
-    with_cast = ",".join(str(id) for id in favorite_cast_ids)
-    with_crew = ",".join(str(id) for id in favorite_director_ids)
-
-    if favorite_embeddings:
-        import torch
-
-        # Define raw weights for positions 1 to 5
-        raw_weights = [0.3, 0.25, 0.2, 0.15, 0.1]
-
-        # Trim weights if fewer movies
-        weights = raw_weights[:len(favorite_embeddings)]
-
-        # Normalize so they sum to 1
-        weight_sum = sum(weights)
-        weights = [w / weight_sum for w in weights]
-
-        # Convert to tensor for broadcasting
-        weight_tensor = torch.tensor(weights).unsqueeze(1)
-
-        # Stack embeddings (N x D)
-        try:
-            stacked = torch.stack(favorite_embeddings)
-            # Weighted average: multiply each embedding by its weight and sum along N
-            avg_fav_embedding = torch.sum(weight_tensor * stacked, dim=0)
-        except Exception as e:
-            st.warning(f"Error creating average embedding: {e}")
-            avg_fav_embedding = favorite_embeddings[0] if favorite_embeddings else None
-    else:
-        avg_fav_embedding = None
+    # Analyze taste diversity
+    diversity_metrics = analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years)
+    st.write(f"🎯 Taste profile: {diversity_metrics['taste_profile']}")
+    
+    # Identify taste clusters
+    cluster_centers, cluster_labels = identify_taste_clusters(favorite_embeddings, favorite_movies_info)
+    
+    if cluster_centers:
+        st.write(f"🎬 Identified {len(cluster_centers)} distinct taste clusters")
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
@@ -905,7 +979,8 @@ def recommend_movies(favorite_titles):
     user_prefs = {
         "subscribed_platforms": [k for k,v in streaming_platform_priority.items() if v>0],
         "preferred_moods": plot_moods,
-        "estimated_age": estimate_user_age(favorite_years)
+        "estimated_age": estimate_user_age(favorite_years),
+        "taste_diversity": diversity_metrics
     }
 
     candidate_movies = {}
@@ -941,7 +1016,7 @@ def recommend_movies(favorite_titles):
     # Fetch trending scores before computing movie scores
     trending_scores = get_trending_popularity(tmdb.api_key)
 
-    def compute_score(m, avg_fav_embedding):
+    def compute_score(m, cluster_centers, diversity_metrics):
         try:
             narrative = getattr(m, 'narrative_style', {})
             score = 0.0
@@ -1001,26 +1076,54 @@ def recommend_movies(favorite_titles):
             narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
             score += recommendation_weights['narrative_style'] * narrative_match_score
 
-            # --- Fixed Embedding Similarity ---
-            if avg_fav_embedding is not None:
-                movie_id = getattr(m, 'id', None)
-                if movie_id and movie_id in candidate_movies:
-                    candidate_data = candidate_movies[movie_id]
-                    if len(candidate_data) >= 2 and candidate_data[1] is not None:
-                        candidate_embedding = candidate_data[1]  # (movie_obj, embedding)
-                        try:
-                            embedding_sim_score = float(cos_sim(candidate_embedding, avg_fav_embedding))
-                            score += recommendation_weights['embedding_similarity'] * embedding_sim_score
-                        except Exception as e:
-                            st.warning(f"Error computing embedding similarity: {e}")
+            # --- NEW: Multi-Cluster Embedding Similarity ---
+            movie_id = getattr(m, 'id', None)
+            if movie_id and movie_id in candidate_movies:
+                candidate_data = candidate_movies[movie_id]
+                if len(candidate_data) >= 2 and candidate_data[1] is not None:
+                    candidate_embedding = candidate_data[1]
+                    
+                    # Use multi-cluster similarity for diverse tastes
+                    if cluster_centers and diversity_metrics['taste_profile'] in ['diverse', 'eclectic']:
+                        embedding_sim_score = compute_multi_cluster_similarity(candidate_embedding, cluster_centers)
+                    else:
+                        # For focused tastes, use average embedding as before
+                        if favorite_embeddings:
+                            avg_embedding = torch.mean(torch.stack(favorite_embeddings), dim=0)
+                            embedding_sim_score = float(cos_sim(candidate_embedding, avg_embedding))
+                        else:
+                            embedding_sim_score = 0.0
+                    
+                    score += recommendation_weights['embedding_similarity'] * embedding_sim_score
 
             movie_trend_score = trending_scores.get(getattr(m, 'id', 0), 0)
             mood_match_score = get_mood_score(movie_genres, user_prefs['preferred_moods'])
             genre_overlap_score = len(genres & favorite_genres) / max(len(favorite_genres), 1)
 
-            # Only apply trending boost if both mood and genre are somewhat aligned
-            if mood_match_score > 0.3 and genre_overlap_score > 0.2:
-                score += recommendation_weights['trending_factor'] * movie_trend_score
+            # Adjust trending boost based on taste diversity
+            if diversity_metrics['taste_profile'] == 'eclectic':
+                # Eclectic users might enjoy trending movies more
+                trending_weight = recommendation_weights['trending_factor'] * 1.5
+            elif diversity_metrics['taste_profile'] == 'focused':
+                # Focused users need stronger alignment for trending boost
+                if mood_match_score > 0.5 and genre_overlap_score > 0.4:
+                    trending_weight = recommendation_weights['trending_factor']
+                else:
+                    trending_weight = 0
+            else:
+                # Standard approach for diverse users
+                if mood_match_score > 0.3 and genre_overlap_score > 0.2:
+                    trending_weight = recommendation_weights['trending_factor']
+                else:
+                    trending_weight = 0
+            
+            score += trending_weight * movie_trend_score
+
+            # Discovery boost for eclectic users
+            if diversity_metrics['taste_profile'] == 'eclectic':
+                # Boost movies that are somewhat different but not completely unrelated
+                if 0.1 < genre_overlap_score < 0.5:
+                    score += recommendation_weights['discovery_boost'] * 1.5
 
             # Apply a small penalty for very old movies
             try:
@@ -1053,7 +1156,7 @@ def recommend_movies(favorite_titles):
         if movie_obj is None or embedding is None:
             continue
         try:
-            score = compute_score(movie_obj, avg_fav_embedding)
+            score = compute_score(movie_obj, cluster_centers, diversity_metrics)
             vote_count = getattr(movie_obj, 'vote_count', 0)
             score += min(vote_count, 500) / 50000
             scored.append((movie_obj, score))
@@ -1065,9 +1168,12 @@ def recommend_movies(favorite_titles):
     st.write(f"✅ Valid scored movies: {len(scored)}")
 
     scored.sort(key=lambda x:x[1], reverse=True)
+    
+    # NEW: Diversify recommendations for eclectic users
     top = []
     low_votes = 0
-
+    used_genres = set()
+    
     # Create a set of favorite movie titles for easy checking
     favorite_titles_set = {title.lower() for title in favorite_titles}
 
@@ -1079,12 +1185,32 @@ def recommend_movies(favorite_titles):
         if movie_title.lower() in favorite_titles_set:
             continue
         
+        # Get movie genres
+        movie_genres = set()
+        genres_list = getattr(m, 'genres', [])
+        for g in genres_list:
+            if isinstance(g, dict):
+                name = g.get('name', '')
+            else:
+                name = getattr(g, 'name', '')
+            if name:
+                movie_genres.add(name)
+        
+        # For eclectic users, ensure genre diversity in recommendations
+        if diversity_metrics['taste_profile'] == 'eclectic' and len(top) >= 3:
+            # Check if we already have too many movies from the same genre
+            genre_overlap = len(movie_genres & used_genres) / max(len(movie_genres), 1)
+            if genre_overlap > 0.7:  # Skip if too similar to already selected
+                continue
+        
         if vote_count < 100:
             if low_votes >= 2: 
                 continue
             low_votes += 1
         
         top.append((movie_title, s))
+        used_genres.update(movie_genres)
+        
         if len(top) == 10: 
             break
 
@@ -1092,228 +1218,3 @@ def recommend_movies(favorite_titles):
     result = (top, candidate_movies)
     st.session_state.recommendation_cache[cache_key] = result
     return result
-
-def fetch_multiple_movie_details(movie_ids):
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_id = {
-            executor.submit(fetch_similar_movie_details, mid): mid 
-            for mid in movie_ids[:50]  # Limit to first 50
-        }
-        for future in concurrent.futures.as_completed(future_to_id):
-            mid = future_to_id[future]
-            try:
-                result = future.result()
-                if result and result[1]:
-                    results[mid] = result[1]
-            except:
-                pass
-    return results
-
-st.title("🎬 Screen or Skip")
-
-# Setup flags
-if "search_done" not in st.session_state:
-    st.session_state["search_done"] = False
-if "previous_query" not in st.session_state:
-    st.session_state["previous_query"] = ""
-
-# Get input
-search_query = st.text_input("search for a movie", key="movie_search")
-
-# ✅ Reset search_done when user types a different movie
-if search_query != st.session_state["previous_query"]:
-    st.session_state["search_done"] = False
-    st.session_state["previous_query"] = search_query
-
-search_results = []
-
-# 3️⃣ Only search if user hasn't just added a movie
-if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
-    try:
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
-        response = requests.get(url, params=params)
-        data = response.json()
-        results = data.get("results", [])
-        search_results = [
-            {
-                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
-                "id": m.get("id"),
-                "poster_path": m.get("poster_path")
-            }
-            for m in results[:5]
-            if m.get("title") and m.get("id")
-        ]
-    except Exception as e:
-        st.error(f"Error searching for movies: {e}")
-
-# 4️⃣ Show Top 5 only if we have results AND no movie was just added
-if search_results:
-    st.markdown("### Top 5 Matches")
-    cols = st.columns(5)
-    for idx, movie in enumerate(search_results):
-        with cols[idx]:
-            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
-            if poster_url:
-                st.image(poster_url, use_column_width=True)
-            st.write(f"**{movie['label']}**")
-            if st.button("Add Movie", key=f"add_{idx}"):  # ✅ Simpler button text
-                clean_title = movie["label"].split(" (", 1)[0]
-                movie_id = movie["id"]
-
-                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                if len(st.session_state.favorite_movies) >= 5:
-                    st.warning("You can only add up to 5 movies.")
-                elif clean_title not in existing_titles:
-                    st.session_state.favorite_movies.append({
-                        "title": clean_title,
-                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
-                        "poster_path": movie.get("poster_path", ""),
-                        "id": movie_id
-                    })
-                    save_session({"favorite_movies": st.session_state.favorite_movies})
-                    st.session_state["search_done"] = True  # ✅ Hide Top 5
-                    st.toast(f"✅ Added {clean_title}")
-                    st.experimental_rerun()
-
-# --- Display Favorite Movies with Posters in a Grid ---
-st.subheader("🎥 Your Selected Movies (5 max)")
-
-# Build a single HTML string for all cards
-movie_cards_html = """
-<style>
-.movie-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    justify-content: flex-start;
-    margin-bottom: 20px;
-}
-.movie-card {
-    width: 120px;
-    text-align: center;
-}
-.movie-card img {
-    height: 180px;
-    width: 100%;
-    object-fit: cover;
-    border-radius: 6px;
-}
-</style>
-<div class="movie-grid">
-"""
-
-for i, movie in enumerate(st.session_state.favorite_movies):
-    title = movie["title"]
-    year = movie["year"]
-    poster = movie.get("poster_path")
-
-    movie_cards_html += f'<div class="movie-card">'
-    if poster:
-        poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
-        movie_cards_html += f'<img src="{poster_url}" alt="{title}">'
-    else:
-        movie_cards_html += '<div>No image available</div>'
-
-    movie_cards_html += f'<div><strong>{title} ({year})</strong></div>'
-    movie_cards_html += f'''
-        <form action="" method="post">
-            <button type="submit" name="remove_index" value="{i}">Remove</button>
-        </form>
-    '''
-    movie_cards_html += '</div>'
-
-movie_cards_html += "</div>"
-
-# Render all cards at once
-st.markdown(movie_cards_html, unsafe_allow_html=True)
-
-# Buttons rendered separately
-if st.button("❌ Clear All"):
-    st.session_state.favorite_movies = []
-    save_session({"favorite_movies": []})
-    st.experimental_rerun()
-
-# --- Get Recommendations ---
-if st.button("🎬 Get Recommendations"):
-    if len(st.session_state.favorite_movies) != 5:
-        st.warning("Please select exactly 5 movies to get recommendations.")
-    else:
-        with st.spinner("Finding personalized movie recommendations..."):
-            favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-            try:
-                recs, candidate_movies = recommend_movies(favorite_titles)
-                st.session_state.recommendations = recs
-                st.session_state.candidates = candidate_movies
-                st.session_state.recommend_triggered = True
-            except Exception as e:
-                st.error(f"❌ Failed to generate recommendations: {e}")
-
-# Display recommendations and feedback
-if st.session_state.recommend_triggered:
-    if not st.session_state.recommendations:
-        st.warning("⚠️ No recommendations could be generated. Please try different favorite movies.")
-        st.info("Tip: Make sure your selected movies have plot summaries and at least some popularity.")
-    else:
-        st.subheader("🌟 Your Top 10 Movie Recommendations")
-
-    # 1. Create placeholders and gather all responses in a dictionary
-    user_feedback = {}
-
-    for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
-        movie_obj = next((m[0] for m in st.session_state.candidates.values() if m and m[0].title == title), None)
-        if movie_obj is None:
-            continue
-        release_year = "N/A"
-        try:
-            release_year = movie_obj.release_date[:4]
-        except:
-            pass
-        st.markdown(f"### {idx}. {movie_obj.title} ({release_year})")
-        st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}" if movie_obj.poster_path else None, width=150)
-        st.write(movie_obj.overview or "No description available.")
-
-        fb_key = f"watch_{idx}"
-        liked_key = f"liked_{idx}"
-
-        response = st.radio("Would you watch this?", ["Yes", "No", "Already watched"], key=fb_key, index=None)
-
-        liked = None
-        if response == "Already watched":
-            liked = st.radio("Did you like it?", ["Yes", "No"], key=liked_key, index=None)
-
-        user_feedback[idx] = {
-            "movie": movie_obj.title,
-            "movie_id": movie_obj.id,
-            "response": response,
-            "liked": liked,
-        }
-        
-        st.markdown("---")
-
-    # 2. Submit button at the end only
-    if st.button("Submit All Responses"):
-        # Store all responses in Google Sheet
-        success_count = 0
-        total_responses = 0
-        
-        for index, feedback in user_feedback.items():
-            if feedback["response"]:  # Only save if user provided a response
-                total_responses += 1
-                if record_feedback_to_sheet(
-                    numeric_session_id=st.session_state.numeric_session_id,
-                    uuid_session_id=st.session_state.session_id,
-                    movie_id=feedback["movie_id"],
-                    movie_title=feedback["movie"],
-                    would_watch=feedback["response"],
-                    liked_if_seen=feedback["liked"] or ""
-                ):
-                    success_count += 1
-        
-        if success_count == total_responses and total_responses > 0:
-            st.success(f"✅ All {success_count} responses saved successfully!")
-        elif success_count > 0:
-            st.warning(f"⚠️ {success_count}/{total_responses} responses saved. Some failed to save.")
-        else:
-            st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
