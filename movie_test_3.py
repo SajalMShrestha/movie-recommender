@@ -1218,3 +1218,252 @@ def recommend_movies(favorite_titles):
     result = (top, candidate_movies)
     st.session_state.recommendation_cache[cache_key] = result
     return result
+# Add this code at the END of your existing file (after the recommend_movies function)
+
+def fetch_multiple_movie_details(movie_ids):
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_id = {
+            executor.submit(fetch_similar_movie_details, mid): mid 
+            for mid in movie_ids[:50]  # Limit to first 50
+        }
+        for future in concurrent.futures.as_completed(future_to_id):
+            mid = future_to_id[future]
+            try:
+                result = future.result()
+                if result and result[1]:
+                    results[mid] = result[1]
+            except:
+                pass
+    return results
+
+# ============ STREAMLIT UI CODE ============
+
+st.title("🎬 Screen or Skip")
+
+# Setup flags
+if "search_done" not in st.session_state:
+    st.session_state["search_done"] = False
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
+
+# Get input
+search_query = st.text_input("search for a movie", key="movie_search")
+
+# ✅ Reset search_done when user types a different movie
+if search_query != st.session_state["previous_query"]:
+    st.session_state["search_done"] = False
+    st.session_state["previous_query"] = search_query
+
+search_results = []
+
+# 3️⃣ Only search if user hasn't just added a movie
+if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
+    try:
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+        response = requests.get(url, params=params)
+        data = response.json()
+        results = data.get("results", [])
+        search_results = [
+            {
+                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
+                "id": m.get("id"),
+                "poster_path": m.get("poster_path")
+            }
+            for m in results[:5]
+            if m.get("title") and m.get("id")
+        ]
+    except Exception as e:
+        st.error(f"Error searching for movies: {e}")
+
+# 4️⃣ Show Top 5 only if we have results AND no movie was just added
+if search_results:
+    st.markdown("### Top 5 Matches")
+    cols = st.columns(5)
+    for idx, movie in enumerate(search_results):
+        with cols[idx]:
+            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
+            if poster_url:
+                st.image(poster_url, use_column_width=True)
+            st.write(f"**{movie['label']}**")
+            if st.button("Add Movie", key=f"add_{idx}"):  # ✅ Simpler button text
+                clean_title = movie["label"].split(" (", 1)[0]
+                movie_id = movie["id"]
+
+                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                if len(st.session_state.favorite_movies) >= 5:
+                    st.warning("You can only add up to 5 movies.")
+                elif clean_title not in existing_titles:
+                    st.session_state.favorite_movies.append({
+                        "title": clean_title,
+                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                        "poster_path": movie.get("poster_path", ""),
+                        "id": movie_id
+                    })
+                    save_session({"favorite_movies": st.session_state.favorite_movies})
+                    st.session_state["search_done"] = True  # ✅ Hide Top 5
+                    st.success(f"✅ Added {clean_title}")
+                    st.rerun()
+
+# --- Display Favorite Movies with Posters in a Grid ---
+st.subheader("🎥 Your Selected Movies (5 max)")
+
+if st.session_state.favorite_movies:
+    cols = st.columns(5)
+    for i, movie in enumerate(st.session_state.favorite_movies):
+        with cols[i % 5]:
+            title = movie["title"]
+            year = movie.get("year", "")
+            poster = movie.get("poster_path")
+            
+            if poster:
+                poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
+                st.image(poster_url, use_column_width=True)
+            else:
+                st.write("🎬 No poster")
+            
+            st.write(f"**{title}**")
+            if year:
+                st.write(f"({year})")
+            
+            if st.button(f"Remove", key=f"remove_{i}"):
+                st.session_state.favorite_movies.pop(i)
+                save_session({"favorite_movies": st.session_state.favorite_movies})
+                st.rerun()
+else:
+    st.info("👆 Search and add your 5 favorite movies to get personalized recommendations!")
+
+# Buttons below the grid
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("❌ Clear All"):
+        st.session_state.favorite_movies = []
+        save_session({"favorite_movies": []})
+        st.rerun()
+
+with col2:
+    # --- Get Recommendations ---
+    if st.button("🎬 Get Recommendations", type="primary"):
+        if len(st.session_state.favorite_movies) != 5:
+            st.warning("Please select exactly 5 movies to get recommendations.")
+        else:
+            with st.spinner("Finding personalized movie recommendations..."):
+                favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                try:
+                    recs, candidate_movies = recommend_movies(favorite_titles)
+                    st.session_state.recommendations = recs
+                    st.session_state.candidates = candidate_movies
+                    st.session_state.recommend_triggered = True
+                except Exception as e:
+                    st.error(f"❌ Failed to generate recommendations: {e}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+# Display recommendations and feedback
+if st.session_state.recommend_triggered:
+    if not st.session_state.recommendations:
+        st.warning("⚠️ No recommendations could be generated. Please try different favorite movies.")
+        st.info("Tip: Make sure your selected movies have plot summaries and at least some popularity.")
+    else:
+        st.subheader("🌟 Your Top 10 Movie Recommendations")
+
+        # 1. Create placeholders and gather all responses in a dictionary
+        user_feedback = {}
+
+        for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
+            # Find the movie object from candidates
+            movie_obj = None
+            for m, _ in st.session_state.candidates.values():
+                if m and getattr(m, 'title', '') == title:
+                    movie_obj = m
+                    break
+            
+            if movie_obj is None:
+                continue
+            
+            st.markdown(f"### {idx}. {movie_obj.title}")
+            
+            # Create columns for poster and details
+            col1, col2 = st.columns([1, 3])
+            
+            with col1:
+                if movie_obj.poster_path:
+                    st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}", width=150)
+                else:
+                    st.write("🎬 No poster")
+            
+            with col2:
+                # Show year
+                release_year = "N/A"
+                try:
+                    if hasattr(movie_obj, 'release_date') and movie_obj.release_date:
+                        release_year = movie_obj.release_date[:4]
+                except:
+                    pass
+                st.write(f"**Year:** {release_year}")
+                
+                # Show plot
+                overview = getattr(movie_obj, 'overview', None) or getattr(movie_obj, 'plot', None) or "No description available."
+                st.write(f"**Plot:** {overview}")
+
+            # Feedback section
+            fb_key = f"watch_{idx}"
+            liked_key = f"liked_{idx}"
+
+            response = st.radio(
+                "Would you watch this?", 
+                ["Yes", "No", "Already watched"], 
+                key=fb_key, 
+                index=None,
+                horizontal=True
+            )
+
+            liked = None
+            if response == "Already watched":
+                liked = st.radio(
+                    "Did you like it?", 
+                    ["Yes", "No"], 
+                    key=liked_key, 
+                    index=None,
+                    horizontal=True
+                )
+
+            user_feedback[idx] = {
+                "movie": movie_obj.title,
+                "movie_id": movie_obj.id,
+                "response": response,
+                "liked": liked,
+            }
+            
+            st.markdown("---")
+
+        # 2. Submit button at the end only
+        if st.button("Submit All Responses", type="primary"):
+            # Store all responses in Google Sheet
+            success_count = 0
+            total_responses = 0
+            
+            for index, feedback in user_feedback.items():
+                if feedback["response"]:  # Only save if user provided a response
+                    total_responses += 1
+                    if record_feedback_to_sheet(
+                        numeric_session_id=st.session_state.numeric_session_id,
+                        uuid_session_id=st.session_state.session_id,
+                        movie_id=feedback["movie_id"],
+                        movie_title=feedback["movie"],
+                        would_watch=feedback["response"],
+                        liked_if_seen=feedback["liked"] or ""
+                    ):
+                        success_count += 1
+            
+            if success_count == total_responses and total_responses > 0:
+                st.success(f"✅ All {success_count} responses saved successfully!")
+                st.balloons()
+            elif success_count > 0:
+                st.warning(f"⚠️ {success_count}/{total_responses} responses saved. Some failed to save.")
+            else:
+                if total_responses == 0:
+                    st.warning("⚠️ Please provide at least one response before submitting.")
+                else:
+                    st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
