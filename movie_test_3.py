@@ -25,7 +25,7 @@ from google.oauth2.service_account import Credentials
 from torch import stack
 import torch
 from sklearn.cluster import KMeans
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 
 # Global cache for movie details to avoid repeated API calls
 MOVIE_DETAILS_CACHE = {}
@@ -445,7 +445,7 @@ def generate_embedding(text):
         return torch.zeros(384)  # same size, but torch tensor
     return embedding_model.encode(text, convert_to_tensor=True, normalize_embeddings=True)
 
-def cosine_similarity(vec1, vec2):
+def compute_cosine_similarity(vec1, vec2):
     return dot(vec1, vec2) / (norm(vec1) * norm(vec2) + 1e-8)
 
 def infer_narrative_style(plot):
@@ -777,7 +777,8 @@ def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years
     # Embedding variance
     if len(favorite_embeddings) > 1:
         embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
-        pairwise_similarities = cosine_similarity(embeddings_array)
+        # Use sklearn's cosine_similarity for pairwise computation
+        pairwise_similarities = sklearn_cosine_similarity(embeddings_array)
         # Get off-diagonal elements (excluding self-similarity)
         mask = ~np.eye(pairwise_similarities.shape[0], dtype=bool)
         avg_similarity = pairwise_similarities[mask].mean()
