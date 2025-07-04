@@ -26,6 +26,8 @@ from torch import stack
 import torch
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
+import re
+from collections import defaultdict
 
 # Global cache for movie details to avoid repeated API calls
 MOVIE_DETAILS_CACHE = {}
@@ -1170,15 +1172,19 @@ def recommend_movies(favorite_titles):
 
     scored.sort(key=lambda x:x[1], reverse=True)
     
-    # NEW: Diversify recommendations for eclectic users
+    # Apply franchise limit (max 2 per franchise)
+    franchise_filtered = apply_franchise_limit(scored, max_per_franchise=2)
+    # debug_franchise_filtering(scored, franchise_filtered)  # Uncomment to debug
+
+    # Apply existing diversity filters
     top = []
     low_votes = 0
     used_genres = set()
-    
+
     # Create a set of favorite movie titles for easy checking
     favorite_titles_set = {title.lower() for title in favorite_titles}
 
-    for m, s in scored:
+    for m, s in franchise_filtered:
         vote_count = getattr(m, 'vote_count', 0)
         movie_title = getattr(m, 'title', 'Unknown Title')
         
@@ -1219,7 +1225,96 @@ def recommend_movies(favorite_titles):
     result = (top, candidate_movies)
     st.session_state.recommendation_cache[cache_key] = result
     return result
-# Add this code at the END of your existing file (after the recommend_movies function)
+
+def extract_base_title(title):
+    """Extract base title by removing common sequel indicators"""
+    # Remove common sequel patterns
+    patterns = [
+        r'\s*\d+$',          # Numbers at end (e.g., "Movie 2")
+        r'\s*:\s*.*$',       # Colon and subtitle (e.g., "Movie: Subtitle")
+        r'\s*-\s*.*$',       # Dash and subtitle
+        r'\s*\(.*\)$',       # Parentheses content
+        r'\s*II+$',          # Roman numerals
+        r'\s*[Pp]art\s*\d+$', # "Part X"
+        r'\s*[Vv]ol\s*\d+$', # "Vol X"
+    ]
+    
+    base_title = title
+    for pattern in patterns:
+        base_title = re.sub(pattern, '', base_title)
+    
+    return base_title.strip()
+
+def get_franchise_key(movie_obj):
+    """Generate a franchise key based on title and director"""
+    title = getattr(movie_obj, 'title', '')
+    base_title = extract_base_title(title)
+    
+    # Get director from cached credits
+    movie_id = getattr(movie_obj, 'id', None)
+    directors = []
+    
+    if movie_id and movie_id in MOVIE_CREDITS_CACHE:
+        credits = MOVIE_CREDITS_CACHE[movie_id]
+        crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
+        
+        for c in crew_list:
+            if isinstance(c, dict):
+                if c.get('job', '') == 'Director':
+                    directors.append(c.get('name', ''))
+            else:
+                if getattr(c, 'job', '') == 'Director':
+                    directors.append(getattr(c, 'name', ''))
+    
+    # Create franchise key: base_title + director
+    director_key = directors[0] if directors else "unknown"
+    franchise_key = f"{base_title.lower()}_{director_key.lower()}"
+    
+    return franchise_key
+
+def apply_franchise_limit(scored_movies, max_per_franchise=2):
+    """
+    Apply hard limit of max_per_franchise movies per franchise
+    """
+    franchise_counts = defaultdict(int)
+    filtered_results = []
+    
+    for movie_obj, score in scored_movies:
+        franchise_key = get_franchise_key(movie_obj)
+        
+        # Check if we can add this movie
+        if franchise_counts[franchise_key] < max_per_franchise:
+            filtered_results.append((movie_obj, score))
+            franchise_counts[franchise_key] += 1
+            
+            # Stop when we have enough recommendations
+            if len(filtered_results) >= 10:
+                break
+    
+    return filtered_results
+
+def debug_franchise_filtering(original_scored, filtered_scored):
+    """Debug function to show franchise filtering impact"""
+    print(f"🎬 Original recommendations: {len(original_scored)}")
+    print(f"🎬 After franchise filtering: {len(filtered_scored)}")
+    print()
+    
+    # Check for franchise patterns in original
+    print("🔍 Franchise analysis in original top 15:")
+    franchise_groups = defaultdict(list)
+    for i, (movie, score) in enumerate(original_scored[:15]):
+        franchise_key = get_franchise_key(movie)
+        title = getattr(movie, 'title', 'Unknown')
+        franchise_groups[franchise_key].append(f"{title} ({score:.3f})")
+    
+    for franchise, movies in franchise_groups.items():
+        if len(movies) > 1:
+            print(f"  🎭 {franchise}: {len(movies)} movies")
+            for movie in movies:
+                print(f"    - {movie}")
+    
+    if not any(len(movies) > 1 for movies in franchise_groups.values()):
+        print("  ✅ No franchise domination detected in top 15")
 
 def fetch_multiple_movie_details(movie_ids):
     results = {}
