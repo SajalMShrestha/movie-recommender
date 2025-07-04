@@ -1172,9 +1172,9 @@ def recommend_movies(favorite_titles):
 
     scored.sort(key=lambda x:x[1], reverse=True)
     
-    # Apply franchise limit (max 2 per franchise)
-    franchise_filtered = apply_franchise_limit(scored, max_per_franchise=2)
-    # debug_franchise_filtering(scored, franchise_filtered)  # Uncomment to debug
+    # Apply natural franchise limit - only limit when franchise movies score highly
+    franchise_filtered = apply_natural_franchise_limit(scored, max_per_franchise=2)
+    # debug_natural_franchise_limiting(scored, franchise_filtered)  # Uncomment to debug
 
     # Apply existing diversity filters
     top = []
@@ -1272,49 +1272,87 @@ def get_franchise_key(movie_obj):
     
     return franchise_key
 
-def apply_franchise_limit(scored_movies, max_per_franchise=2):
+def apply_natural_franchise_limit(scored_movies, max_per_franchise=2):
     """
-    Apply hard limit of max_per_franchise movies per franchise
+    Natural franchise limiting: Only apply limits when franchise movies score highly
+    Don't force franchise movies in - just prevent domination when they naturally rank high
     """
-    franchise_counts = defaultdict(int)
-    filtered_results = []
+    franchise_counts = {}
+    final_recommendations = []
     
+    # Go through movies in score order (highest first)
     for movie_obj, score in scored_movies:
         franchise_key = get_franchise_key(movie_obj)
         
-        # Check if we can add this movie
-        if franchise_counts[franchise_key] < max_per_franchise:
-            filtered_results.append((movie_obj, score))
-            franchise_counts[franchise_key] += 1
-            
-            # Stop when we have enough recommendations
-            if len(filtered_results) >= 10:
-                break
+        # Check if this franchise already has too many movies
+        current_franchise_count = franchise_counts.get(franchise_key, 0)
+        
+        if current_franchise_count < max_per_franchise:
+            # This franchise can still add movies
+            final_recommendations.append((movie_obj, score))
+            franchise_counts[franchise_key] = current_franchise_count + 1
+        else:
+            # Skip this movie - franchise already has max movies
+            movie_title = getattr(movie_obj, 'title', 'Unknown')
+            # Optional: uncomment to see what's being skipped
+            # st.write(f"⏭️ Skipping {movie_title} (franchise limit reached)")
+            continue
+        
+        # Stop when we have enough recommendations
+        if len(final_recommendations) >= 10:
+            break
     
-    return filtered_results
+    return final_recommendations
 
-def debug_franchise_filtering(original_scored, filtered_scored):
-    """Debug function to show franchise filtering impact"""
-    print(f"🎬 Original recommendations: {len(original_scored)}")
-    print(f"🎬 After franchise filtering: {len(filtered_scored)}")
+# OPTIONAL: Debug function to see what franchises are being limited
+def debug_natural_franchise_limiting(original_scored, filtered_scored):
+    """Show which franchises got limited and which got through naturally"""
+    print("🎬 NATURAL FRANCHISE LIMITING DEBUG:")
+    print(f"Processed {len(original_scored)} candidates → {len(filtered_scored)} recommendations")
     print()
     
-    # Check for franchise patterns in original
-    print("🔍 Franchise analysis in original top 15:")
-    franchise_groups = defaultdict(list)
-    for i, (movie, score) in enumerate(original_scored[:15]):
+    # Analyze original top 20 for franchise patterns
+    print("🔍 Franchise analysis in original top 20:")
+    franchise_analysis = {}
+    for i, (movie, score) in enumerate(original_scored[:20]):
         franchise_key = get_franchise_key(movie)
         title = getattr(movie, 'title', 'Unknown')
-        franchise_groups[franchise_key].append(f"{title} ({score:.3f})")
+        
+        if franchise_key not in franchise_analysis:
+            franchise_analysis[franchise_key] = []
+        franchise_analysis[franchise_key].append({
+            'title': title,
+            'score': score,
+            'rank': i + 1
+        })
     
-    for franchise, movies in franchise_groups.items():
+    # Show franchises that had multiple high-scoring movies
+    for franchise, movies in franchise_analysis.items():
         if len(movies) > 1:
-            print(f"  🎭 {franchise}: {len(movies)} movies")
+            print(f"  🎭 {franchise}: {len(movies)} movies in top 20")
+            for movie in movies:
+                print(f"    #{movie['rank']}: {movie['title']} ({movie['score']:.3f})")
+    
+    print()
+    
+    # Show final franchise distribution
+    print("📊 Final recommendations franchise distribution:")
+    final_franchise_counts = {}
+    for movie, score in filtered_scored:
+        franchise_key = get_franchise_key(movie)
+        title = getattr(movie, 'title', 'Unknown')
+        
+        if franchise_key not in final_franchise_counts:
+            final_franchise_counts[franchise_key] = []
+        final_franchise_counts[franchise_key].append(f"{title} ({score:.3f})")
+    
+    for franchise, movies in final_franchise_counts.items():
+        if len(movies) > 1:
+            print(f"  ✅ {franchise}: {len(movies)} movies (limited)")
             for movie in movies:
                 print(f"    - {movie}")
-    
-    if not any(len(movies) > 1 for movies in franchise_groups.values()):
-        print("  ✅ No franchise domination detected in top 15")
+        else:
+            print(f"  🎬 {franchise}: {movies[0]}")
 
 def fetch_multiple_movie_details(movie_ids):
     results = {}
