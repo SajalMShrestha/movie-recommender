@@ -342,6 +342,51 @@ def get_embedding_model():
 # Initialize embedding model for semantic analysis
 embedding_model = get_embedding_model()
 
+# ============ GLOBAL CACHE INITIALIZATION ============
+# Initialize all required session state variables at app startup
+
+# Core app state
+if "favorite_movies" not in st.session_state:
+    st.session_state.favorite_movies = []
+if "selected_movie" not in st.session_state:
+    st.session_state.selected_movie = None
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = None
+if "candidates" not in st.session_state:
+    st.session_state.candidates = None
+if "recommend_triggered" not in st.session_state:
+    st.session_state.recommend_triggered = False
+if "favorite_movie_posters" not in st.session_state:
+    st.session_state.favorite_movie_posters = {}
+
+# Per-user caches
+if "movie_details_cache" not in st.session_state:
+    st.session_state.movie_details_cache = {}
+if "movie_credits_cache" not in st.session_state:
+    st.session_state.movie_credits_cache = {}
+if "fetch_cache" not in st.session_state:
+    st.session_state.fetch_cache = {}
+if "recommendation_cache" not in st.session_state:
+    st.session_state.recommendation_cache = {}
+
+# Session ID (initialize once here)
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+# Search state
+if "search_done" not in st.session_state:
+    st.session_state["search_done"] = False
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
+
+# No file-based session storage needed - using st.session_state only
+saved_state = {}
+
+# Initialize feedback system
+initialize_feedback_csv()
+numeric_id, session_uuid = get_or_create_numeric_session_id()
+st.session_state.numeric_session_id = numeric_id
+
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
     try:
@@ -356,38 +401,7 @@ def get_trending_popularity(api_key):
     except:
         return {}
 
-# No file-based session storage needed - using st.session_state only
-saved_state = {}
 
-# Add a persistent UUID for the session
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-
-# Initialize feedback system
-initialize_feedback_csv()
-numeric_id, session_uuid = get_or_create_numeric_session_id()
-st.session_state.numeric_session_id = numeric_id
-
-if "favorite_movies" not in st.session_state:
-    st.session_state.favorite_movies = saved_state.get("favorite_movies", [])
-if "selected_movie" not in st.session_state:
-    st.session_state.selected_movie = None
-if "recommendations" not in st.session_state:
-    st.session_state.recommendations = None
-if "candidates" not in st.session_state:
-    st.session_state.candidates = None
-if "recommend_triggered" not in st.session_state:
-    st.session_state.recommend_triggered = False
-if "favorite_movie_posters" not in st.session_state:
-    st.session_state.favorite_movie_posters = {}
-
-# Initialize per-user caches
-if "movie_details_cache" not in st.session_state:
-    st.session_state.movie_details_cache = {}
-if "movie_credits_cache" not in st.session_state:
-    st.session_state.movie_credits_cache = {}
-if "fetch_cache" not in st.session_state:
-    st.session_state.fetch_cache = {}
 
 # --- Updated recommendation weights ---
 recommendation_weights = {
@@ -471,11 +485,7 @@ def compute_narrative_similarity(candidate_style, reference_styles):
     return similarity / len(candidate_style)
 
 def fetch_similar_movie_details(m_id):
-    # Initialize cache if not exists (safety check)
-    if "fetch_cache" not in st.session_state:
-        st.session_state.fetch_cache = {}
-    
-    # Use per-user cache
+    # Use per-user cache (now guaranteed to exist)
     if m_id in st.session_state.fetch_cache:
         return m_id, st.session_state.fetch_cache[m_id]
     
@@ -957,14 +967,6 @@ def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years
 
 # --- Enhanced Recommendation Logic ---
 def recommend_movies(favorite_titles):
-    # Safety check: Initialize caches if not exists
-    if "movie_details_cache" not in st.session_state:
-        st.session_state.movie_details_cache = {}
-    if "movie_credits_cache" not in st.session_state:
-        st.session_state.movie_credits_cache = {}
-    if "recommendation_cache" not in st.session_state:
-        st.session_state.recommendation_cache = {}
-    
     # Check cache first
     cache_key = "|".join(sorted(favorite_titles))
     
@@ -1407,11 +1409,7 @@ def fetch_multiple_movie_details(movie_ids):
 
 st.title("🎬 Screen or Skip")
 
-# Setup flags
-if "search_done" not in st.session_state:
-    st.session_state["search_done"] = False
-if "previous_query" not in st.session_state:
-    st.session_state["previous_query"] = ""
+
 
 # Get input
 search_query = st.text_input("search for a movie", key="movie_search")
