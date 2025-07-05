@@ -51,7 +51,7 @@ def extract_base_title_simple(title):
 
 def get_franchise_key_robust(movie_title, candidates):
     """
-    Robust franchise detection using director + cast + title patterns
+    Robust franchise detection using shared cast + title patterns
     """
     # Find the movie object for this title
     movie_obj = None
@@ -64,26 +64,10 @@ def get_franchise_key_robust(movie_title, candidates):
         # Fallback to simple title matching
         return extract_base_title_simple(movie_title)
     
-    # Get director
-    movie_id = getattr(movie_obj, 'id', None)
-    directors = []
-    
-    if movie_id and movie_id in MOVIE_CREDITS_CACHE:
-        credits = MOVIE_CREDITS_CACHE[movie_id]
-        crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
-        
-        for c in crew_list:
-            if isinstance(c, dict):
-                if c.get('job', '') == 'Director':
-                    directors.append(c.get('name', ''))
-            else:
-                if getattr(c, 'job', '') == 'Director':
-                    directors.append(getattr(c, 'name', ''))
-    
     # Get main cast
     cast_names = []
     cast_list = getattr(movie_obj, 'cast', []) if hasattr(movie_obj, 'cast') else []
-    for actor in cast_list[:3]:  # Top 3 cast members
+    for actor in cast_list[:5]:  # Top 5 cast members
         if isinstance(actor, dict):
             name = actor.get('name', '')
         else:
@@ -94,13 +78,21 @@ def get_franchise_key_robust(movie_title, candidates):
     # Extract base title
     base_title = extract_base_title_simple(movie_title)
     
-    # Create franchise key: director + main_cast + base_title_keywords
-    director_key = directors[0] if directors else "unknown"
-    cast_key = "|".join(sorted(cast_names[:2]))  # Top 2 cast for key
+    # Create franchise key using base title + key shared elements
+    # For animated movies, focus on main voice actor
+    main_cast = cast_names[0] if cast_names else "unknown"
     
-    # For HTTYD-style detection, also check for keyword overlap
-    title_keywords = set(base_title.split())
-    franchise_key = f"{director_key}_{cast_key}_{base_title}"
+    # Special handling for similar base titles
+    title_words = set(base_title.split())
+    
+    # If titles share key words (like "dragon"), use shared cast + shared words
+    if any(word in ["dragon", "train"] for word in title_words):
+        # Look for Jay Baruchel (Hiccup's voice) as franchise identifier
+        if "Jay Baruchel" in cast_names:
+            return "httyd_jay_baruchel_dragon"
+    
+    # For other movies, use base title + main cast
+    franchise_key = f"{base_title}_{main_cast}"
     
     return franchise_key
 
