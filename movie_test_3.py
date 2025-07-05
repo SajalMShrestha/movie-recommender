@@ -28,9 +28,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 import re
 
-# Global cache for movie details to avoid repeated API calls
-MOVIE_DETAILS_CACHE = {}
-MOVIE_CREDITS_CACHE = {}
+
 
 def extract_base_title_simple(title):
     """Simple base title extraction - removes common sequel indicators"""
