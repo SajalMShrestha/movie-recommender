@@ -49,6 +49,61 @@ def extract_base_title_simple(title):
     
     return base_title.strip().lower()
 
+def get_franchise_key_robust(movie_title, candidates):
+    """
+    Robust franchise detection using director + cast + title patterns
+    """
+    # Find the movie object for this title
+    movie_obj = None
+    for m, _ in candidates.values():
+        if m and getattr(m, 'title', '') == movie_title:
+            movie_obj = m
+            break
+    
+    if not movie_obj:
+        # Fallback to simple title matching
+        return extract_base_title_simple(movie_title)
+    
+    # Get director
+    movie_id = getattr(movie_obj, 'id', None)
+    directors = []
+    
+    if movie_id and movie_id in MOVIE_CREDITS_CACHE:
+        credits = MOVIE_CREDITS_CACHE[movie_id]
+        crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
+        
+        for c in crew_list:
+            if isinstance(c, dict):
+                if c.get('job', '') == 'Director':
+                    directors.append(c.get('name', ''))
+            else:
+                if getattr(c, 'job', '') == 'Director':
+                    directors.append(getattr(c, 'name', ''))
+    
+    # Get main cast
+    cast_names = []
+    cast_list = getattr(movie_obj, 'cast', []) if hasattr(movie_obj, 'cast') else []
+    for actor in cast_list[:3]:  # Top 3 cast members
+        if isinstance(actor, dict):
+            name = actor.get('name', '')
+        else:
+            name = getattr(actor, 'name', '')
+        if name:
+            cast_names.append(name)
+    
+    # Extract base title
+    base_title = extract_base_title_simple(movie_title)
+    
+    # Create franchise key: director + main_cast + base_title_keywords
+    director_key = directors[0] if directors else "unknown"
+    cast_key = "|".join(sorted(cast_names[:2]))  # Top 2 cast for key
+    
+    # For HTTYD-style detection, also check for keyword overlap
+    title_keywords = set(base_title.split())
+    franchise_key = f"{director_key}_{cast_key}_{base_title}"
+    
+    return franchise_key
+
 def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1):
     """
     Apply franchise limiting as final step - keep only 1 per franchise
@@ -59,34 +114,52 @@ def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1
     
     # Get all scored movies sorted by score for backfill
     all_scored_movies = []
+    recommendation_dict = {title: score for title, score in recommendations}
+    
+    # Add all candidate movies with their scores (if they were in recommendations)
     for movie_obj, embedding in candidates.values():
         if movie_obj:
-            # Find the score from recommendations if it exists
             movie_title = getattr(movie_obj, 'title', '')
-            found_score = None
-            for rec_title, score in recommendations:
-                if rec_title == movie_title:
-                    found_score = score
-                    break
-            
-            if found_score is not None:
-                all_scored_movies.append((movie_title, found_score, movie_obj))
+            if movie_title in recommendation_dict:
+                score = recommendation_dict[movie_title]
+                all_scored_movies.append((movie_title, score, movie_obj))
     
-    # Sort by score (highest first)
-    all_scored_movies.sort(key=lambda x: x[1], reverse=True)
+    # For movies not in original recommendations, we need to get them from the full candidate pool
+    # Add more movies beyond the original top 10 to ensure we can fill 10 slots
+    additional_movies = []
+    used_titles = {title for title, _, _ in all_scored_movies}
+    
+    for movie_obj, embedding in candidates.values():
+        if movie_obj:
+            movie_title = getattr(movie_obj, 'title', '')
+            if movie_title not in used_titles:
+                # These don't have scores from recommendations, so assign them lower scores
+                additional_movies.append((movie_title, 0.0, movie_obj))
+    
+    # Combine and sort by score (original recommendations first, then additional)
+    all_movies = all_scored_movies + additional_movies
+    all_movies.sort(key=lambda x: x[1], reverse=True)
     
     # Apply franchise limiting
     franchise_counts = {}
     final_recommendations = []
     used_titles = set()
     
+    # Debug: Track what franchises we detect
+    franchise_debug = {}
+    
     # First pass: Go through all movies in score order and apply franchise limit
-    for title, score, movie_obj in all_scored_movies:
+    for title, score, movie_obj in all_movies:
         if title in used_titles:
             continue
             
-        # Get franchise key (simple base title)
-        franchise_key = extract_base_title_simple(title)
+        # Get franchise key using robust detection
+        franchise_key = get_franchise_key_robust(title, candidates)
+        
+        # Debug tracking
+        if franchise_key not in franchise_debug:
+            franchise_debug[franchise_key] = []
+        franchise_debug[franchise_key].append(title)
         
         # Check if this franchise already has a movie
         if franchise_counts.get(franchise_key, 0) < max_per_franchise:
@@ -97,6 +170,18 @@ def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1
             # Stop when we have 10 recommendations
             if len(final_recommendations) >= 10:
                 break
+    
+    # Debug output
+    st.write(f"🎬 Franchise limiting: {len(recommendations)} → {len(final_recommendations)} recommendations")
+    
+    # Show franchise detection results
+    for franchise, movies in franchise_debug.items():
+        if len(movies) > 1:
+            st.write(f"🎭 Franchise detected: {len(movies)} movies")
+            for movie in movies:
+                kept = movie in [t for t, s in final_recommendations]
+                status = "✅ Kept" if kept else "❌ Removed"
+                st.write(f"  - {movie} {status}")
     
     return final_recommendations[:10]
 
@@ -1286,26 +1371,6 @@ def recommend_movies(favorite_titles):
 
     # Apply final franchise limiting (1 per franchise)
     franchise_limited_top = apply_final_franchise_limit(top, candidate_movies, max_per_franchise=1)
-    
-    # Optional: Debug output to see what got filtered
-    if len(franchise_limited_top) != len(top):
-        st.write(f"🎬 Franchise limiting: {len(top)} → {len(franchise_limited_top)} recommendations")
-        
-        # Show what franchises were detected
-        franchise_counts = {}
-        for title, score in top:
-            franchise_key = extract_base_title_simple(title)
-            if franchise_key not in franchise_counts:
-                franchise_counts[franchise_key] = []
-            franchise_counts[franchise_key].append(title)
-        
-        for franchise, movies in franchise_counts.items():
-            if len(movies) > 1:
-                st.write(f"  🎭 Franchise '{franchise}': {len(movies)} movies detected")
-                for movie in movies:
-                    kept = movie in [t for t, s in franchise_limited_top]
-                    status = "✅ Kept" if kept else "❌ Removed"
-                    st.write(f"    - {movie} {status}")
 
     # Before returning, cache the result  
     result = (franchise_limited_top, candidate_movies)
