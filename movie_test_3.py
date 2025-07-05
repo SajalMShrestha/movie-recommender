@@ -1176,6 +1176,25 @@ def recommend_movies(favorite_titles):
     franchise_filtered = apply_natural_franchise_limit(scored, max_per_franchise=2)
     # debug_natural_franchise_limiting(scored, franchise_filtered)  # Uncomment to debug
 
+    # Add debugging information for franchise filtering
+    st.write("🔍 **DEBUGGING FRANCHISE FILTERING:**")
+    st.write(f"Total scored candidates: {len(scored)}")
+    st.write(f"After franchise filtering: {len(franchise_filtered)}")
+
+    # Show top 20 original candidates and their franchises
+    st.write("**Top 20 Original Candidates:**")
+    for i, (movie, score) in enumerate(scored[:20]):
+        franchise_key = get_franchise_key(movie)
+        title = getattr(movie, 'title', 'Unknown')
+        st.write(f"{i+1}. {title} ({score:.3f}) - Franchise: {franchise_key}")
+
+    # Show what got filtered out
+    st.write("**What got through franchise filter:**")
+    for i, (movie, score) in enumerate(franchise_filtered[:10]):
+        franchise_key = get_franchise_key(movie)
+        title = getattr(movie, 'title', 'Unknown')
+        st.write(f"{i+1}. {title} ({score:.3f}) - Franchise: {franchise_key}")
+
     # Apply existing diversity filters
     top = []
     low_votes = 0
