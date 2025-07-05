@@ -356,20 +356,8 @@ def get_trending_popularity(api_key):
     except:
         return {}
 
-# Session persistence via file storage
-SESSION_FILE = "session_state.json"
-def load_session():
-    if os.path.exists(SESSION_FILE):
-        with open(SESSION_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_session(session_data):
-    with open(SESSION_FILE, "w") as f:
-        json.dump(session_data, f)
-
-# Restore session state
-saved_state = load_session()
+# No file-based session storage needed - using st.session_state only
+saved_state = {}
 
 # Add a persistent UUID for the session
 if "session_id" not in st.session_state:
@@ -392,6 +380,14 @@ if "recommend_triggered" not in st.session_state:
     st.session_state.recommend_triggered = False
 if "favorite_movie_posters" not in st.session_state:
     st.session_state.favorite_movie_posters = {}
+
+# Initialize per-user caches
+if "movie_details_cache" not in st.session_state:
+    st.session_state.movie_details_cache = {}
+if "movie_credits_cache" not in st.session_state:
+    st.session_state.movie_credits_cache = {}
+if "fetch_cache" not in st.session_state:
+    st.session_state.fetch_cache = {}
 
 # --- Updated recommendation weights ---
 recommendation_weights = {
@@ -474,11 +470,11 @@ def compute_narrative_similarity(candidate_style, reference_styles):
             similarity += 1
     return similarity / len(candidate_style)
 
-cache = {}
 def fetch_similar_movie_details(m_id):
-    if m_id in cache:
-        return m_id, cache[m_id]
-        
+    # Use per-user cache
+    if m_id in st.session_state.fetch_cache:
+        return m_id, st.session_state.fetch_cache[m_id]
+    
     try:
         m_details = movie_api.details(m_id)
         m_credits = movie_api.credits(m_id)
@@ -518,7 +514,7 @@ def fetch_similar_movie_details(m_id):
         # 🚫 Skip if plot is missing or too short to embed meaningfully
         if not m_details.plot or len(m_details.plot.split()) < 5:
             st.write(f"⚠️ Skipping {getattr(m_details, 'title', 'Unknown')} due to missing/short plot")
-            cache[m_id] = None
+            st.session_state.fetch_cache[m_id] = None
             return m_id, None
 
         m_details.narrative_style = infer_narrative_style(m_details.plot)
@@ -526,12 +522,12 @@ def fetch_similar_movie_details(m_id):
         # ✅ Generate embedding
         embedding = embedding_model.encode(m_details.plot, convert_to_tensor=True)
 
-        cache[m_id] = (m_details, embedding)
+        st.session_state.fetch_cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
 
     except Exception as e:
         st.warning(f"Embedding fetch failed for ID {m_id}: {e}")
-        cache[m_id] = None
+        st.session_state.fetch_cache[m_id] = None
         return m_id, None
 
 # Text analysis functions for narrative style detection
@@ -987,16 +983,16 @@ def recommend_movies(favorite_titles):
             
             movie_id = search_result[0].id
             
-            # Check cache first
-            if movie_id in MOVIE_DETAILS_CACHE:
-                details = MOVIE_DETAILS_CACHE[movie_id]
-                credits = MOVIE_CREDITS_CACHE[movie_id]
+            # Check per-user cache first
+            if movie_id in st.session_state.movie_details_cache:
+                details = st.session_state.movie_details_cache[movie_id]
+                credits = st.session_state.movie_credits_cache[movie_id]
             else:
-                # Fetch and cache
+                # Fetch and cache per user
                 details = movie_api.details(movie_id)
                 credits = movie_api.credits(movie_id)
-                MOVIE_DETAILS_CACHE[movie_id] = details
-                MOVIE_CREDITS_CACHE[movie_id] = credits
+                st.session_state.movie_details_cache[movie_id] = details
+                st.session_state.movie_credits_cache[movie_id] = credits
             
             # Store movie info for clustering
             movie_info = {
@@ -1379,7 +1375,6 @@ def recommend_movies(favorite_titles):
     result = (franchise_limited_top, candidate_movies)
     st.session_state.recommendation_cache[cache_key] = result
     return result
-# Add this code at the END of your existing file (after the recommend_movies function)
 
 def fetch_multiple_movie_details(movie_ids):
     results = {}
@@ -1462,7 +1457,6 @@ if search_results:
                         "poster_path": movie.get("poster_path", ""),
                         "id": movie_id
                     })
-                    save_session({"favorite_movies": st.session_state.favorite_movies})
                     st.session_state["search_done"] = True  # ✅ Hide Top 5
                     st.success(f"✅ Added {clean_title}")
                     st.rerun()
@@ -1490,7 +1484,6 @@ if st.session_state.favorite_movies:
             
             if st.button(f"Remove", key=f"remove_{i}"):
                 st.session_state.favorite_movies.pop(i)
-                save_session({"favorite_movies": st.session_state.favorite_movies})
                 st.rerun()
 else:
     st.info("👆 Search and add your 5 favorite movies to get personalized recommendations!")
@@ -1500,7 +1493,6 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button("❌ Clear All"):
         st.session_state.favorite_movies = []
-        save_session({"favorite_movies": []})
         st.rerun()
 
 with col2:
