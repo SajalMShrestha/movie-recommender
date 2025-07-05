@@ -107,41 +107,129 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
 
 def calculate_title_similarity(query, title):
     """
-    Calculate similarity between query and movie title using multiple methods
+    Enhanced similarity calculation with number-word conversion and better matching
     """
     query_lower = query.lower()
     title_lower = title.lower()
     
-    # Method 1: Direct substring matching
-    if query_lower in title_lower or title_lower in query_lower:
-        return 0.9
+    # Number-to-word mapping for better matching
+    number_word_map = {
+        '1': 'one', 'one': '1',
+        '2': 'two', 'two': '2', 
+        '3': 'three', 'three': '3',
+        '4': 'four', 'four': '4',
+        '5': 'five', 'five': '5',
+        '6': 'six', 'six': '6',
+        '7': 'seven', 'seven': '7',
+        '8': 'eight', 'eight': '8',
+        '9': 'nine', 'nine': '9',
+        '10': 'ten', 'ten': '10'
+    }
     
-    # Method 2: Word-based matching
+    # Create normalized versions with number-word conversion
+    def normalize_text(text):
+        words = text.split()
+        normalized_words = []
+        for word in words:
+            # Check if word is a number or number word
+            if word in number_word_map:
+                # Add both the original and the mapped version
+                normalized_words.append(word)
+                normalized_words.append(number_word_map[word])
+            else:
+                normalized_words.append(word)
+        return ' '.join(normalized_words)
+    
+    query_normalized = normalize_text(query_lower)
+    title_normalized = normalize_text(title_lower)
+    
+    # Method 1: Direct substring matching (enhanced with normalization)
+    if (query_lower in title_lower or title_lower in query_lower or
+        query_normalized in title_normalized or title_normalized in query_normalized):
+        return 0.95
+    
+    # Method 2: Enhanced word-based matching
     query_words = set(query_lower.split())
     title_words = set(title_lower.split())
+    
+    # Also check normalized words
+    query_words_norm = set(query_normalized.split())
+    title_words_norm = set(title_normalized.split())
     
     # Remove common words that don't help with matching
     common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
     query_words -= common_words
     title_words -= common_words
+    query_words_norm -= common_words
+    title_words_norm -= common_words
     
+    # Calculate word similarity
     word_similarity = 0
     if query_words and title_words:
-        word_similarity = len(query_words & title_words) / len(query_words | title_words)
+        # Regular word matching
+        overlap = len(query_words & title_words)
+        union = len(query_words | title_words)
+        word_similarity = overlap / union if union > 0 else 0
+        
+        # Enhanced word matching with normalization
+        overlap_norm = len(query_words_norm & title_words_norm)
+        union_norm = len(query_words_norm | title_words_norm)
+        word_similarity_norm = overlap_norm / union_norm if union_norm > 0 else 0
+        
+        # Take the better of the two
+        word_similarity = max(word_similarity, word_similarity_norm)
+        
         if word_similarity > 0.5:
-            return 0.8 + (word_similarity * 0.2)
+            return 0.85 + (word_similarity * 0.15)
     
-    # Method 3: Sequence matching for character-level similarity
-    sequence_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
-    
-    # Method 4: Check for common misspellings and variations
-    # Remove spaces and compare
+    # Method 3: Handle common misspellings and character-level similarity
+    # Create versions without spaces for better character matching
     query_nospace = query_lower.replace(' ', '')
     title_nospace = title_lower.replace(' ', '')
-    nospace_similarity = SequenceMatcher(None, query_nospace, title_nospace).ratio()
     
-    # Return the highest similarity score
-    return max(sequence_similarity, nospace_similarity, word_similarity)
+    # Check for character-level similarity (for misspellings like "idoits" vs "idiots")
+    char_similarity = SequenceMatcher(None, query_nospace, title_nospace).ratio()
+    
+    # Special handling for very similar character sequences
+    if char_similarity > 0.8:
+        return 0.8 + (char_similarity * 0.2)
+    
+    # Method 4: Sequence matching on full strings
+    sequence_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
+    
+    # Method 5: Enhanced fuzzy matching for common patterns
+    # Handle cases like "3 idiots" vs "three idiots"
+    def create_pattern_variations(text):
+        variations = [text]
+        words = text.split()
+        
+        # Create variations with number-word substitutions
+        for i, word in enumerate(words):
+            if word in number_word_map:
+                new_words = words.copy()
+                new_words[i] = number_word_map[word]
+                variations.append(' '.join(new_words))
+        
+        return variations
+    
+    query_variations = create_pattern_variations(query_lower)
+    title_variations = create_pattern_variations(title_lower)
+    
+    max_pattern_similarity = 0
+    for q_var in query_variations:
+        for t_var in title_variations:
+            pattern_sim = SequenceMatcher(None, q_var, t_var).ratio()
+            max_pattern_similarity = max(max_pattern_similarity, pattern_sim)
+    
+    # Return the highest similarity score from all methods
+    all_similarities = [
+        word_similarity,
+        char_similarity,
+        sequence_similarity,
+        max_pattern_similarity
+    ]
+    
+    return max(all_similarities)
 
 def suggest_corrections(query, search_results):
     """
