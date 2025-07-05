@@ -484,10 +484,14 @@ def compute_narrative_similarity(candidate_style, reference_styles):
             similarity += 1
     return similarity / len(candidate_style)
 
-def fetch_similar_movie_details(m_id):
-    # Use per-user cache (now guaranteed to exist)
-    if m_id in st.session_state.fetch_cache:
-        return m_id, st.session_state.fetch_cache[m_id]
+def fetch_similar_movie_details(m_id, fetch_cache=None):
+    # Use passed cache instead of accessing st.session_state directly
+    if fetch_cache is None:
+        fetch_cache = {}
+    
+    # Use the passed cache
+    if m_id in fetch_cache:
+        return m_id, fetch_cache[m_id]
     
     try:
         m_details = movie_api.details(m_id)
@@ -528,7 +532,7 @@ def fetch_similar_movie_details(m_id):
         # 🚫 Skip if plot is missing or too short to embed meaningfully
         if not m_details.plot or len(m_details.plot.split()) < 5:
             st.write(f"⚠️ Skipping {getattr(m_details, 'title', 'Unknown')} due to missing/short plot")
-            st.session_state.fetch_cache[m_id] = None
+            fetch_cache[m_id] = None
             return m_id, None
 
         m_details.narrative_style = infer_narrative_style(m_details.plot)
@@ -536,12 +540,12 @@ def fetch_similar_movie_details(m_id):
         # ✅ Generate embedding
         embedding = embedding_model.encode(m_details.plot, convert_to_tensor=True)
 
-        st.session_state.fetch_cache[m_id] = (m_details, embedding)
+        fetch_cache[m_id] = (m_details, embedding)
         return m_id, (m_details, embedding)
 
     except Exception as e:
         st.warning(f"Embedding fetch failed for ID {m_id}: {e}")
-        st.session_state.fetch_cache[m_id] = None
+        fetch_cache[m_id] = None
         return m_id, None
 
 # Text analysis functions for narrative style detection
@@ -1150,8 +1154,10 @@ def recommend_movies(favorite_titles):
     }
 
     candidate_movies = {}
+    # Pass the cache to worker threads
+    fetch_cache = st.session_state.fetch_cache
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(fetch_similar_movie_details, mid): mid for mid in candidate_movie_ids}
+        futures = {executor.submit(fetch_similar_movie_details, mid, fetch_cache): mid for mid in candidate_movie_ids}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 result = fut.result()
@@ -1171,6 +1177,9 @@ def recommend_movies(favorite_titles):
             except Exception as e:
                 st.warning(f"Error processing candidate movie: {e}")
                 continue
+
+    # After the threading completes, update the session state cache
+    st.session_state.fetch_cache.update(fetch_cache)
 
     # Get valid titles for debugging
     valid_titles = [getattr(m, 'title', 'Unknown') for m, emb in candidate_movies.values() if m and emb is not None]
@@ -1392,7 +1401,7 @@ def fetch_multiple_movie_details(movie_ids):
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_id = {
-            executor.submit(fetch_similar_movie_details, mid): mid 
+            executor.submit(fetch_similar_movie_details, mid, st.session_state.fetch_cache): mid 
             for mid in movie_ids[:50]  # Limit to first 50
         }
         for future in concurrent.futures.as_completed(future_to_id):
