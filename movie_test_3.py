@@ -27,7 +27,230 @@ import torch
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 import re
+from difflib import SequenceMatcher
 
+
+def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
+    """
+    Perform fuzzy search for movies when exact search fails
+    Returns a list of movies with similarity scores
+    """
+    try:
+        # First try direct search
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": query}
+        response = requests.get(url, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            
+            # If we get good results from direct search, return them
+            if len(results) >= 3:
+                return [
+                    {
+                        "title": m.get('title', ''),
+                        "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
+                        "id": m.get('id'),
+                        "poster_path": m.get('poster_path'),
+                        "similarity": 1.0  # Exact match gets perfect score
+                    }
+                    for m in results[:max_results]
+                    if m.get('title') and m.get('id')
+                ]
+        
+        # If direct search fails or returns few results, try fuzzy matching
+        # Search with broader terms
+        fuzzy_results = []
+        query_words = query.lower().split()
+        
+        # Try searching with individual words from the query
+        for word in query_words:
+            if len(word) > 2:  # Skip very short words
+                try:
+                    params = {"api_key": st.secrets["TMDB_API_KEY"], "query": word}
+                    response = requests.get(url, params=params)
+                    
+                    if response.status_code == 200:
+                        word_results = response.json().get("results", [])
+                        for movie in word_results[:20]:  # Limit to prevent too many API calls
+                            title = movie.get('title', '')
+                            if title:
+                                similarity = calculate_title_similarity(query, title)
+                                if similarity >= similarity_threshold:
+                                    fuzzy_results.append({
+                                        "title": title,
+                                        "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                                        "id": movie.get('id'),
+                                        "poster_path": movie.get('poster_path'),
+                                        "similarity": similarity
+                                    })
+                except:
+                    continue
+        
+        # Remove duplicates and sort by similarity
+        seen_ids = set()
+        unique_results = []
+        for result in fuzzy_results:
+            if result['id'] not in seen_ids:
+                seen_ids.add(result['id'])
+                unique_results.append(result)
+        
+        # Sort by similarity score (highest first)
+        unique_results.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        return unique_results[:max_results]
+        
+    except Exception as e:
+        st.warning(f"Fuzzy search error: {e}")
+        return []
+
+def calculate_title_similarity(query, title):
+    """
+    Calculate similarity between query and movie title using multiple methods
+    """
+    query_lower = query.lower()
+    title_lower = title.lower()
+    
+    # Method 1: Direct substring matching
+    if query_lower in title_lower or title_lower in query_lower:
+        return 0.9
+    
+    # Method 2: Word-based matching
+    query_words = set(query_lower.split())
+    title_words = set(title_lower.split())
+    
+    # Remove common words that don't help with matching
+    common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    query_words -= common_words
+    title_words -= common_words
+    
+    word_similarity = 0
+    if query_words and title_words:
+        word_similarity = len(query_words & title_words) / len(query_words | title_words)
+        if word_similarity > 0.5:
+            return 0.8 + (word_similarity * 0.2)
+    
+    # Method 3: Sequence matching for character-level similarity
+    sequence_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
+    
+    # Method 4: Check for common misspellings and variations
+    # Remove spaces and compare
+    query_nospace = query_lower.replace(' ', '')
+    title_nospace = title_lower.replace(' ', '')
+    nospace_similarity = SequenceMatcher(None, query_nospace, title_nospace).ratio()
+    
+    # Return the highest similarity score
+    return max(sequence_similarity, nospace_similarity, word_similarity)
+
+def suggest_corrections(query, search_results):
+    """
+    Suggest possible corrections when search returns few results
+    """
+    if not search_results or len(search_results) < 3:
+        st.info(f"🔍 **Showing closest matches for '{query}'**")
+        
+        # Try fuzzy search
+        fuzzy_results = fuzzy_search_movies(query, max_results=8, similarity_threshold=0.4)
+        
+        if fuzzy_results:
+            st.write("**Did you mean one of these?**")
+            
+            # Show fuzzy results in a grid
+            cols = st.columns(min(4, len(fuzzy_results)))
+            for idx, movie in enumerate(fuzzy_results[:8]):
+                with cols[idx % 4]:
+                    if movie.get('poster_path'):
+                        poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}"
+                        st.image(poster_url, use_column_width=True)
+                    
+                    title_display = movie['title']
+                    if movie['year']:
+                        title_display += f" ({movie['year']})"
+                    
+                    st.write(f"**{title_display}**")
+                    st.write(f"*{movie['similarity']:.0%} match*")
+                    
+                    if st.button("Add This Movie", key=f"fuzzy_add_{idx}"):
+                        # Add the movie to favorites
+                        existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                        if len(st.session_state.favorite_movies) >= 5:
+                            st.warning("You can only add up to 5 movies.")
+                        elif movie['title'] not in existing_titles:
+                            st.session_state.favorite_movies.append({
+                                "title": movie['title'],
+                                "year": movie['year'],
+                                "poster_path": movie.get('poster_path', ''),
+                                "id": movie['id']
+                            })
+                            st.success(f"✅ Added {movie['title']}")
+                            st.rerun()
+            
+            return True
+    return False
+
+def enhanced_movie_search():
+    """Enhanced movie search with fuzzy matching"""
+    search_query = st.text_input("search for a movie", key="movie_search")
+
+    # Reset search_done when user types a different movie
+    if search_query != st.session_state["previous_query"]:
+        st.session_state["search_done"] = False
+        st.session_state["previous_query"] = search_query
+
+    search_results = []
+
+    # Only search if user hasn't just added a movie
+    if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
+        try:
+            url = "https://api.themoviedb.org/3/search/movie"
+            params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+            response = requests.get(url, params=params)
+            data = response.json()
+            results = data.get("results", [])
+            search_results = [
+                {
+                    "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
+                    "id": m.get("id"),
+                    "poster_path": m.get("poster_path")
+                }
+                for m in results[:5]
+                if m.get("title") and m.get("id")
+            ]
+        except Exception as e:
+            st.error(f"Error searching for movies: {e}")
+
+    # Show Top 5 if we have good results
+    if search_results and len(search_results) >= 3:
+        st.markdown("### Top 5 Matches")
+        cols = st.columns(5)
+        for idx, movie in enumerate(search_results):
+            with cols[idx]:
+                poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
+                if poster_url:
+                    st.image(poster_url, use_column_width=True)
+                st.write(f"**{movie['label']}**")
+                if st.button("Add Movie", key=f"add_{idx}"):
+                    clean_title = movie["label"].split(" (", 1)[0]
+                    movie_id = movie["id"]
+
+                    existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                    if len(st.session_state.favorite_movies) >= 5:
+                        st.warning("You can only add up to 5 movies.")
+                    elif clean_title not in existing_titles:
+                        st.session_state.favorite_movies.append({
+                            "title": clean_title,
+                            "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                            "poster_path": movie.get("poster_path", ""),
+                            "id": movie_id
+                        })
+                        st.session_state["search_done"] = True
+                        st.success(f"✅ Added {clean_title}")
+                        st.rerun()
+    
+    # If we have few or no results, show fuzzy suggestions
+    elif search_query and len(search_query) >= 2:
+        suggest_corrections(search_query, search_results)
 
 
 def extract_base_title_simple(title):
@@ -991,13 +1214,58 @@ def recommend_movies(favorite_titles):
     favorite_embeddings = []
     favorite_movies_info = []  # Store full movie info for clustering analysis
 
+    # Enhanced movie search with fuzzy matching
+    valid_movies_found = []
+    failed_searches = []
+
     for title in favorite_titles:
         try:
+            # First try exact search
             search_result = movie_api.search(title)
-            if not search_result:
-                continue
             
-            movie_id = search_result[0].id
+            if search_result:
+                valid_movies_found.append((title, search_result[0]))
+            else:
+                # Try fuzzy search for this title
+                st.write(f"🔍 Trying fuzzy search for '{title}'...")
+                fuzzy_results = fuzzy_search_movies(title, max_results=3, similarity_threshold=0.7)
+                
+                if fuzzy_results:
+                    # Use the best fuzzy match
+                    best_match = fuzzy_results[0]
+                    st.write(f"📝 Using '{best_match['title']}' as match for '{title}' ({best_match['similarity']:.0%} similarity)")
+                    
+                    # Search for the corrected title
+                    corrected_search = movie_api.search(best_match['title'])
+                    if corrected_search:
+                        valid_movies_found.append((title, corrected_search[0]))
+                    else:
+                        failed_searches.append(title)
+                else:
+                    failed_searches.append(title)
+                    
+        except Exception as e:
+            st.warning(f"Error processing {title}: {e}")
+            failed_searches.append(title)
+
+    # Show what we found/didn't find
+    if valid_movies_found:
+        st.write(f"✅ Successfully found {len(valid_movies_found)} out of {len(favorite_titles)} movies")
+
+    if failed_searches:
+        st.warning(f"⚠️ Could not find matches for: {', '.join(failed_searches)}")
+        st.info("💡 Try using more common titles or check spelling for better results")
+
+    # If we have too few valid movies, show a helpful message
+    if len(valid_movies_found) < 3:
+        st.error("❌ Need at least 3 valid movies to generate good recommendations")
+        st.info("💡 Please add more movies or try different titles")
+        return [], {}
+
+    # Process the valid movies we found
+    for original_title, search_result in valid_movies_found:
+        try:
+            movie_id = search_result.id
             
             # Check per-user cache first
             if movie_id in st.session_state.movie_details_cache:
@@ -1420,63 +1688,8 @@ st.title("🎬 Screen or Skip")
 
 
 
-# Get input
-search_query = st.text_input("search for a movie", key="movie_search")
-
-# ✅ Reset search_done when user types a different movie
-if search_query != st.session_state["previous_query"]:
-    st.session_state["search_done"] = False
-    st.session_state["previous_query"] = search_query
-
-search_results = []
-
-# 3️⃣ Only search if user hasn't just added a movie
-if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
-    try:
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
-        response = requests.get(url, params=params)
-        data = response.json()
-        results = data.get("results", [])
-        search_results = [
-            {
-                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
-                "id": m.get("id"),
-                "poster_path": m.get("poster_path")
-            }
-            for m in results[:5]
-            if m.get("title") and m.get("id")
-        ]
-    except Exception as e:
-        st.error(f"Error searching for movies: {e}")
-
-# 4️⃣ Show Top 5 only if we have results AND no movie was just added
-if search_results:
-    st.markdown("### Top 5 Matches")
-    cols = st.columns(5)
-    for idx, movie in enumerate(search_results):
-        with cols[idx]:
-            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
-            if poster_url:
-                st.image(poster_url, use_column_width=True)
-            st.write(f"**{movie['label']}**")
-            if st.button("Add Movie", key=f"add_{idx}"):  # ✅ Simpler button text
-                clean_title = movie["label"].split(" (", 1)[0]
-                movie_id = movie["id"]
-
-                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                if len(st.session_state.favorite_movies) >= 5:
-                    st.warning("You can only add up to 5 movies.")
-                elif clean_title not in existing_titles:
-                    st.session_state.favorite_movies.append({
-                        "title": clean_title,
-                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
-                        "poster_path": movie.get("poster_path", ""),
-                        "id": movie_id
-                    })
-                    st.session_state["search_done"] = True  # ✅ Hide Top 5
-                    st.success(f"✅ Added {clean_title}")
-                    st.rerun()
+# Enhanced movie search with fuzzy matching
+enhanced_movie_search()
 
 # --- Display Favorite Movies with Posters in a Grid ---
 st.subheader("🎥 Your Selected Movies (5 max)")
