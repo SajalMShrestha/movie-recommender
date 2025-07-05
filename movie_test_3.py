@@ -104,6 +104,16 @@ def get_franchise_key_robust(movie_title, candidates):
     
     return franchise_key
 
+def debug_franchise_keys(recommendations, candidates):
+    """Debug function to see what franchise keys are being generated"""
+    st.write("🔍 **FRANCHISE KEY DEBUG:**")
+    
+    for title, score in recommendations[:5]:  # Check first 5
+        franchise_key = get_franchise_key_robust(title, candidates)
+        st.write(f"- **{title}** → `{franchise_key}`")
+    
+    st.write("")
+
 def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1):
     """
     Apply franchise limiting as final step - keep only 1 per franchise
@@ -111,6 +121,9 @@ def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1
     """
     if not recommendations:
         return recommendations
+    
+    # ADD THIS LINE:
+    debug_franchise_keys(recommendations, candidates)
     
     # Get all scored movies sorted by score for backfill
     all_scored_movies = []
