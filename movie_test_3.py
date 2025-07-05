@@ -63,7 +63,7 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
         # Search with broader terms
         fuzzy_results = []
         
-        # Try searching with individual words from the query AND partial matches
+        # Enhanced search terms for better typo detection
         search_terms = []
         query_words = query.lower().split()
 
@@ -96,7 +96,7 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
                     for movie in word_results[:20]:  # Limit to prevent too many API calls
                         title = movie.get('title', '')
                         if title:
-                                                        similarity = calculate_title_similarity(query, title)
+                            similarity = calculate_title_similarity(query, title)
                             # Lower the threshold for typo detection
                             if similarity >= max(0.3, similarity_threshold - 0.3):
                                 fuzzy_results.append({
