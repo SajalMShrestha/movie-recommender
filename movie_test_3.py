@@ -62,31 +62,52 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
         # If direct search fails or returns few results, try fuzzy matching
         # Search with broader terms
         fuzzy_results = []
-        query_words = query.lower().split()
         
-        # Try searching with individual words from the query
+        # Try searching with individual words from the query AND partial matches
+        search_terms = []
+        query_words = query.lower().split()
+
+        # Add original words
         for word in query_words:
-            if len(word) > 2:  # Skip very short words
-                try:
-                    params = {"api_key": st.secrets["TMDB_API_KEY"], "query": word}
-                    response = requests.get(url, params=params)
-                    
-                    if response.status_code == 200:
-                        word_results = response.json().get("results", [])
-                        for movie in word_results[:20]:  # Limit to prevent too many API calls
-                            title = movie.get('title', '')
-                            if title:
-                                similarity = calculate_title_similarity(query, title)
-                                if similarity >= similarity_threshold:
-                                    fuzzy_results.append({
-                                        "title": title,
-                                        "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
-                                        "id": movie.get('id'),
-                                        "poster_path": movie.get('poster_path'),
-                                        "similarity": similarity
-                                    })
-                except:
-                    continue
+            if len(word) > 2:
+                search_terms.append(word)
+
+        # Add the full query (even if it has typos)
+        search_terms.append(query)
+
+        # For typos, also try searching with partial word matches
+        for word in query_words:
+            if len(word) > 3:  # For longer words, try partial matches
+                # Search with first part of word (handles "idoits" → "idio")
+                search_terms.append(word[:4])
+                if len(word) > 5:
+                    search_terms.append(word[:5])
+
+        # Remove duplicates
+        search_terms = list(set(search_terms))
+
+        for search_term in search_terms:
+            try:
+                params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
+                response = requests.get(url, params=params)
+                
+                if response.status_code == 200:
+                    word_results = response.json().get("results", [])
+                    for movie in word_results[:20]:  # Limit to prevent too many API calls
+                        title = movie.get('title', '')
+                        if title:
+                                                        similarity = calculate_title_similarity(query, title)
+                            # Lower the threshold for typo detection
+                            if similarity >= max(0.3, similarity_threshold - 0.3):
+                                fuzzy_results.append({
+                                    "title": title,
+                                    "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                                    "id": movie.get('id'),
+                                    "poster_path": movie.get('poster_path'),
+                                    "similarity": similarity
+                                })
+            except:
+                continue
         
         # Remove duplicates and sort by similarity
         seen_ids = set()
@@ -239,7 +260,7 @@ def suggest_corrections(query, search_results):
         st.info(f"🔍 **Showing closest matches for '{query}'**")
         
         # Try fuzzy search
-        fuzzy_results = fuzzy_search_movies(query, max_results=8, similarity_threshold=0.4)
+        fuzzy_results = fuzzy_search_movies(query, max_results=8, similarity_threshold=0.2)
         
         if fuzzy_results:
             st.write("**Did you mean one of these?**")
@@ -338,6 +359,7 @@ def enhanced_movie_search():
     
     # If we have few or no results, show fuzzy suggestions
     elif search_query and len(search_query) >= 2:
+        # Use lower threshold for better typo detection
         suggest_corrections(search_query, search_results)
 
 
