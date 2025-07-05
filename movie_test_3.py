@@ -32,7 +32,7 @@ from difflib import SequenceMatcher
 
 def generate_search_variations(query):
     """
-    Generate focused search variations - less is more
+    Generate search variations using general patterns (no hard-coded movie names)
     """
     variations = set()
     
@@ -43,22 +43,18 @@ def generate_search_variations(query):
     clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
     variations.add(clean_query)
     
-    # FOCUSED typo corrections for specific cases
-    typo_corrections = {
-        'idoits': 'idiots',
-        'idoit': 'idiots'  # Also map to plural for better movie matching
-    }
+    # Add space-corrected versions for concatenated words
+    if ' ' not in clean_query and len(clean_query) > 3:
+        # Add space before numbers: "3idiots" -> "3 idiots"
+        spaced_query = re.sub(r'(\d+)([a-z])', r'\1 \2', clean_query)
+        if spaced_query != clean_query:
+            variations.add(spaced_query)
     
-    # Apply targeted typo corrections
-    corrected_query = clean_query
-    for typo, correction in typo_corrections.items():
-        if typo in corrected_query:
-            corrected_query = corrected_query.replace(typo, correction)
-            variations.add(corrected_query)
-    
-    # Number-word conversions (only for numbers 1-10)
+    # Number-word conversions (general approach)
     number_word_map = {
-        '3': 'three', 'three': '3'  # Focus on the specific case we need
+        '1': 'one', 'one': '1', '2': 'two', 'two': '2',
+        '3': 'three', 'three': '3', '4': 'four', 'four': '4',
+        '5': 'five', 'five': '5'
     }
     
     words = clean_query.split()
@@ -68,46 +64,11 @@ def generate_search_variations(query):
             new_words[i] = number_word_map[word]
             variations.add(' '.join(new_words))
     
-    # Add space-corrected version for cases like "3idiots"
-    if ' ' not in clean_query and len(clean_query) > 3:
-        # Try to add space before common patterns
-        spaced_query = clean_query
-        if re.match(r'^\d+[a-z]', spaced_query):  # "3idiots" -> "3 idiots"
-            spaced_query = re.sub(r'^(\d+)([a-z])', r'\1 \2', spaced_query)
-            variations.add(spaced_query)
-            
-            # Also add typo-corrected version
-            for typo, correction in typo_corrections.items():
-                if typo in spaced_query:
-                    corrected_spaced = spaced_query.replace(typo, correction)
-                    variations.add(corrected_spaced)
-    
-    # Remove duplicates and return top 5 most promising variations
-    final_variations = list(variations)
-    
-    # Prioritize: original, corrected typos, number conversions, then spaced versions
-    prioritized = []
-    
-    # Add original first
-    if query.strip() in final_variations:
-        prioritized.append(query.strip())
-    
-    # Add typo corrections
-    for var in final_variations:
-        if any(correction in var for correction in typo_corrections.values()):
-            if var not in prioritized:
-                prioritized.append(var)
-    
-    # Add remaining variations
-    for var in final_variations:
-        if var not in prioritized:
-            prioritized.append(var)
-    
-    return prioritized[:5]  # Limit to 5 best variations
+    return list(variations)[:4]  # Limit to 4 variations
 
-def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
+def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.4):
     """
-    Simplified fuzzy search - focus on getting the right results
+    Universal fuzzy search that works for any movie
     """
     try:
         # First try direct search
@@ -127,16 +88,14 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
                         "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
                         "id": m.get('id'),
                         "poster_path": m.get('poster_path'),
-                        "similarity": 1.0  # Exact match gets perfect score
+                        "similarity": 1.0
                     }
                     for m in results[:max_results]
                     if m.get('title') and m.get('id')
                 ]
         
-        # If direct search fails, try focused fuzzy matching
+        # Try fuzzy matching with search variations
         fuzzy_results = []
-        
-        # Get focused search variations
         search_variations = generate_search_variations(query)
         
         for search_term in search_variations:
@@ -146,12 +105,11 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
                 
                 if response.status_code == 200:
                     word_results = response.json().get("results", [])
-                    for movie in word_results[:10]:  # Fewer results per variation
+                    for movie in word_results[:15]:  # Check more movies per variation
                         title = movie.get('title', '')
                         if title:
                             similarity = calculate_title_similarity(query, title)
-                            # Higher threshold for better quality
-                            if similarity >= 0.5:  # Raised from 0.2 to 0.5
+                            if similarity >= similarity_threshold:
                                 fuzzy_results.append({
                                     "title": title,
                                     "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
@@ -181,57 +139,131 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
 
 def calculate_title_similarity(query, title):
     """
-    Simplified similarity calculation focused on the key use cases
+    Universal similarity calculation using multiple algorithms
     """
     query_lower = query.lower().strip()
     title_lower = title.lower().strip()
     
-    # Quick exact matches
+    # Method 1: Exact match
     if query_lower == title_lower:
         return 1.0
     
-    # Handle typo corrections
-    typo_corrections = {
-        'idoits': 'idiots',
-        'idoit': 'idiots'
-    }
-    
-    # Apply typo corrections to query
-    corrected_query = query_lower
-    for typo, correction in typo_corrections.items():
-        corrected_query = corrected_query.replace(typo, correction)
-    
-    # Check corrected version
-    if corrected_query == title_lower:
+    # Method 2: Substring matching
+    if query_lower in title_lower or title_lower in query_lower:
         return 0.95
     
-    # Handle number-word conversions specifically for "3 idiots"
-    if ('3' in query_lower or 'three' in query_lower) and 'idiots' in title_lower:
-        query_normalized = corrected_query.replace('three', '3').replace('3', 'three')
-        if any(word in title_lower for word in ['3 idiots', 'three idiots']):
-            return 0.9
-    
-    # Word-based similarity for partial matches
-    query_words = set(corrected_query.split())
+    # Method 3: Word-based similarity (Jaccard similarity)
+    query_words = set(query_lower.split())
     title_words = set(title_lower.split())
     
     # Remove common stop words
     stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
-    query_words -= stop_words
-    title_words -= stop_words
+    query_words_clean = query_words - stop_words
+    title_words_clean = title_words - stop_words
     
-    if query_words and title_words:
-        overlap = len(query_words & title_words)
-        union = len(query_words | title_words)
-        word_similarity = overlap / union if union > 0 else 0
+    if query_words_clean and title_words_clean:
+        intersection = len(query_words_clean & title_words_clean)
+        union = len(query_words_clean | title_words_clean)
+        jaccard_similarity = intersection / union if union > 0 else 0
         
-        if word_similarity >= 0.6:  # High threshold for word similarity
-            return 0.8 + (word_similarity * 0.2)
+        if jaccard_similarity >= 0.5:  # High word overlap
+            return 0.85 + (jaccard_similarity * 0.15)
     
-    # Character-level similarity as fallback
-    similarity_score = SequenceMatcher(None, corrected_query, title_lower).ratio()
+    # Method 4: Character-level similarity (handles typos universally)
+    char_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
     
-    return similarity_score
+    # Method 5: Edit distance based similarity (Levenshtein-like)
+    def levenshtein_similarity(s1, s2):
+        """Calculate similarity based on edit distance"""
+        if len(s1) == 0 or len(s2) == 0:
+            return 0.0
+        
+        # Create matrix
+        rows = len(s1) + 1
+        cols = len(s2) + 1
+        matrix = [[0] * cols for _ in range(rows)]
+        
+        # Initialize first row and column
+        for i in range(rows):
+            matrix[i][0] = i
+        for j in range(cols):
+            matrix[0][j] = j
+        
+        # Fill matrix
+        for i in range(1, rows):
+            for j in range(1, cols):
+                cost = 0 if s1[i-1] == s2[j-1] else 1
+                matrix[i][j] = min(
+                    matrix[i-1][j] + 1,      # deletion
+                    matrix[i][j-1] + 1,      # insertion
+                    matrix[i-1][j-1] + cost  # substitution
+                )
+        
+        # Convert distance to similarity
+        max_len = max(len(s1), len(s2))
+        distance = matrix[rows-1][cols-1]
+        similarity = 1 - (distance / max_len)
+        return max(0, similarity)
+    
+    edit_similarity = levenshtein_similarity(query_lower, title_lower)
+    
+    # Method 6: Token-based fuzzy matching (handles word order changes)
+    def token_similarity(q, t):
+        q_tokens = q.split()
+        t_tokens = t.split()
+        
+        if not q_tokens or not t_tokens:
+            return 0.0
+        
+        # Find best match for each query token in title
+        total_similarity = 0
+        for q_token in q_tokens:
+            best_match = 0
+            for t_token in t_tokens:
+                token_sim = SequenceMatcher(None, q_token, t_token).ratio()
+                best_match = max(best_match, token_sim)
+            total_similarity += best_match
+        
+        return total_similarity / len(q_tokens)
+    
+    token_sim = token_similarity(query_lower, title_lower)
+    
+    # Method 7: N-gram similarity (for partial word matches)
+    def ngram_similarity(s1, s2, n=2):
+        """Calculate similarity based on character n-grams"""
+        def get_ngrams(text, n):
+            return set(text[i:i+n] for i in range(len(text)-n+1))
+        
+        ngrams1 = get_ngrams(s1, n)
+        ngrams2 = get_ngrams(s2, n)
+        
+        if not ngrams1 or not ngrams2:
+            return 0.0
+        
+        intersection = len(ngrams1 & ngrams2)
+        union = len(ngrams1 | ngrams2)
+        
+        return intersection / union if union > 0 else 0.0
+    
+    bigram_sim = ngram_similarity(query_lower, title_lower, 2)
+    trigram_sim = ngram_similarity(query_lower, title_lower, 3)
+    
+    # Combine all similarity scores with weights
+    similarities = [
+        char_similarity * 0.3,      # Character-level
+        edit_similarity * 0.25,     # Edit distance
+        token_sim * 0.25,          # Token-based
+        bigram_sim * 0.1,          # Bigram
+        trigram_sim * 0.1          # Trigram
+    ]
+    
+    final_similarity = sum(similarities)
+    
+    # Boost for partial title matches (helps with longer titles)
+    if any(word in title_lower for word in query_lower.split() if len(word) > 2):
+        final_similarity += 0.1
+    
+    return min(final_similarity, 1.0)
 
 def suggest_corrections(query, search_results):
     """
@@ -1941,3 +1973,20 @@ if st.session_state.recommend_triggered:
                     st.warning("⚠️ Please provide at least one response before submitting.")
                 else:
                     st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
+
+# Test the universal approach
+def test_universal_fuzzy():
+    """Test with various movie queries to show it works universally"""
+    test_cases = [
+        ("thre idoits", "3 Idiots"),
+        ("godfater", "The Godfather"), 
+        ("jurrasic park", "Jurassic Park"),
+        ("avengrs", "Avengers"),
+        ("intersteler", "Interstellar"),
+        ("dark knght", "The Dark Knight")
+    ]
+    
+    print("Testing Universal Fuzzy Matching:")
+    for query, expected in test_cases:
+        similarity = calculate_title_similarity(query, expected)
+        print(f"'{query}' vs '{expected}': {similarity:.3f}")
