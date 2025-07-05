@@ -471,6 +471,10 @@ def compute_narrative_similarity(candidate_style, reference_styles):
     return similarity / len(candidate_style)
 
 def fetch_similar_movie_details(m_id):
+    # Initialize cache if not exists (safety check)
+    if "fetch_cache" not in st.session_state:
+        st.session_state.fetch_cache = {}
+    
     # Use per-user cache
     if m_id in st.session_state.fetch_cache:
         return m_id, st.session_state.fetch_cache[m_id]
@@ -953,10 +957,16 @@ def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years
 
 # --- Enhanced Recommendation Logic ---
 def recommend_movies(favorite_titles):
-    # Check cache first
-    cache_key = "|".join(sorted(favorite_titles))
+    # Safety check: Initialize caches if not exists
+    if "movie_details_cache" not in st.session_state:
+        st.session_state.movie_details_cache = {}
+    if "movie_credits_cache" not in st.session_state:
+        st.session_state.movie_credits_cache = {}
     if "recommendation_cache" not in st.session_state:
         st.session_state.recommendation_cache = {}
+    
+    # Check cache first
+    cache_key = "|".join(sorted(favorite_titles))
     
     if cache_key in st.session_state.recommendation_cache:
         cached_result = st.session_state.recommendation_cache[cache_key]
