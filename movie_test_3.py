@@ -26,10 +26,79 @@ from torch import stack
 import torch
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
+import re
 
 # Global cache for movie details to avoid repeated API calls
 MOVIE_DETAILS_CACHE = {}
 MOVIE_CREDITS_CACHE = {}
+
+def extract_base_title_simple(title):
+    """Simple base title extraction - removes common sequel indicators"""
+    # Remove common sequel patterns
+    patterns = [
+        r'\s*\d+$',          # "Movie 2"
+        r'\s*:\s*.*$',       # "Movie: Subtitle"  
+        r'\s*-\s*.*$',       # "Movie - Subtitle"
+        r'\s*\(.*\)$',       # "Movie (2019)"
+        r'\s*II+$',          # "Movie II"
+    ]
+    
+    base_title = title
+    for pattern in patterns:
+        base_title = re.sub(pattern, '', base_title)
+    
+    return base_title.strip().lower()
+
+def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1):
+    """
+    Apply franchise limiting as final step - keep only 1 per franchise
+    Fill remaining slots from next best movies
+    """
+    if not recommendations:
+        return recommendations
+    
+    # Get all scored movies sorted by score for backfill
+    all_scored_movies = []
+    for movie_obj, embedding in candidates.values():
+        if movie_obj:
+            # Find the score from recommendations if it exists
+            movie_title = getattr(movie_obj, 'title', '')
+            found_score = None
+            for rec_title, score in recommendations:
+                if rec_title == movie_title:
+                    found_score = score
+                    break
+            
+            if found_score is not None:
+                all_scored_movies.append((movie_title, found_score, movie_obj))
+    
+    # Sort by score (highest first)
+    all_scored_movies.sort(key=lambda x: x[1], reverse=True)
+    
+    # Apply franchise limiting
+    franchise_counts = {}
+    final_recommendations = []
+    used_titles = set()
+    
+    # First pass: Go through all movies in score order and apply franchise limit
+    for title, score, movie_obj in all_scored_movies:
+        if title in used_titles:
+            continue
+            
+        # Get franchise key (simple base title)
+        franchise_key = extract_base_title_simple(title)
+        
+        # Check if this franchise already has a movie
+        if franchise_counts.get(franchise_key, 0) < max_per_franchise:
+            final_recommendations.append((title, score))
+            franchise_counts[franchise_key] = franchise_counts.get(franchise_key, 0) + 1
+            used_titles.add(title)
+            
+            # Stop when we have 10 recommendations
+            if len(final_recommendations) >= 10:
+                break
+    
+    return final_recommendations[:10]
 
 # Feedback system constants and functions
 FEEDBACK_FILE = "user_feedback.csv"
@@ -1215,8 +1284,31 @@ def recommend_movies(favorite_titles):
         if len(top) == 10: 
             break
 
-    # Before returning, cache the result
-    result = (top, candidate_movies)
+    # Apply final franchise limiting (1 per franchise)
+    franchise_limited_top = apply_final_franchise_limit(top, candidate_movies, max_per_franchise=1)
+    
+    # Optional: Debug output to see what got filtered
+    if len(franchise_limited_top) != len(top):
+        st.write(f"🎬 Franchise limiting: {len(top)} → {len(franchise_limited_top)} recommendations")
+        
+        # Show what franchises were detected
+        franchise_counts = {}
+        for title, score in top:
+            franchise_key = extract_base_title_simple(title)
+            if franchise_key not in franchise_counts:
+                franchise_counts[franchise_key] = []
+            franchise_counts[franchise_key].append(title)
+        
+        for franchise, movies in franchise_counts.items():
+            if len(movies) > 1:
+                st.write(f"  🎭 Franchise '{franchise}': {len(movies)} movies detected")
+                for movie in movies:
+                    kept = movie in [t for t, s in franchise_limited_top]
+                    status = "✅ Kept" if kept else "❌ Removed"
+                    st.write(f"    - {movie} {status}")
+
+    # Before returning, cache the result  
+    result = (franchise_limited_top, candidate_movies)
     st.session_state.recommendation_cache[cache_key] = result
     return result
 # Add this code at the END of your existing file (after the recommend_movies function)
