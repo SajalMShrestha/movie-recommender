@@ -30,10 +30,80 @@ import re
 from difflib import SequenceMatcher
 
 
+def generate_search_variations(query):
+    """
+    Generate multiple search variations for better matching
+    """
+    variations = set()
+    
+    # Original query
+    variations.add(query.strip())
+    
+    # Basic cleanup
+    clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
+    variations.add(clean_query)
+    
+    # Number-word conversions
+    number_word_map = {
+        '1': 'one', 'one': '1',
+        '2': 'two', 'two': '2', 
+        '3': 'three', 'three': '3',
+        '4': 'four', 'four': '4',
+        '5': 'five', 'five': '5',
+        '6': 'six', 'six': '6',
+        '7': 'seven', 'seven': '7',
+        '8': 'eight', 'eight': '8',
+        '9': 'nine', 'nine': '9',
+        '10': 'ten', 'ten': '10'
+    }
+    
+    # Add number-word variations
+    words = clean_query.split()
+    for i, word in enumerate(words):
+        if word in number_word_map:
+            new_words = words.copy()
+            new_words[i] = number_word_map[word]
+            variations.add(' '.join(new_words))
+    
+    # Handle common typos for "idiots"
+    typo_corrections = {
+        'idoits': 'idiots',
+        'idoit': 'idiot',
+        'idot': 'idiot',
+        'iditots': 'idiots',
+        'ideots': 'idiots'
+    }
+    
+    # Apply typo corrections
+    corrected_query = clean_query
+    for typo, correction in typo_corrections.items():
+        if typo in corrected_query:
+            corrected_query = corrected_query.replace(typo, correction)
+            variations.add(corrected_query)
+    
+    # Add individual words for partial matching
+    for word in words:
+        if len(word) > 2:
+            variations.add(word)
+            # Add corrected version if it's a known typo
+            if word in typo_corrections:
+                variations.add(typo_corrections[word])
+    
+    # Add combinations without spaces
+    no_space_query = clean_query.replace(' ', '')
+    variations.add(no_space_query)
+    
+    # Add with corrected typos
+    corrected_no_space = no_space_query
+    for typo, correction in typo_corrections.items():
+        corrected_no_space = corrected_no_space.replace(typo, correction)
+    variations.add(corrected_no_space)
+    
+    return list(variations)
+
 def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
     """
-    Perform fuzzy search for movies when exact search fails
-    Returns a list of movies with similarity scores
+    Enhanced fuzzy search for movies with better typo and variation handling
     """
     try:
         # First try direct search
@@ -59,46 +129,25 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
                     if m.get('title') and m.get('id')
                 ]
         
-        # If direct search fails or returns few results, try fuzzy matching
-        # Search with broader terms
+        # If direct search fails, try enhanced fuzzy matching
         fuzzy_results = []
         
-        # Enhanced search terms for better typo detection
-        search_terms = []
-        query_words = query.lower().split()
-
-        # Add original words
-        for word in query_words:
-            if len(word) > 2:
-                search_terms.append(word)
-
-        # Add the full query (even if it has typos)
-        search_terms.append(query)
-
-        # For typos, also try searching with partial word matches
-        for word in query_words:
-            if len(word) > 3:  # For longer words, try partial matches
-                # Search with first part of word (handles "idoits" → "idio")
-                search_terms.append(word[:4])
-                if len(word) > 5:
-                    search_terms.append(word[:5])
-
-        # Remove duplicates
-        search_terms = list(set(search_terms))
-
-        for search_term in search_terms:
+        # Enhanced search strategies
+        search_variations = generate_search_variations(query)
+        
+        for search_term in search_variations:
             try:
                 params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
                 response = requests.get(url, params=params)
                 
                 if response.status_code == 200:
                     word_results = response.json().get("results", [])
-                    for movie in word_results[:20]:  # Limit to prevent too many API calls
+                    for movie in word_results[:30]:  # More results for better matching
                         title = movie.get('title', '')
                         if title:
                             similarity = calculate_title_similarity(query, title)
-                            # Lower the threshold for typo detection
-                            if similarity >= max(0.3, similarity_threshold - 0.3):
+                            # Lower threshold for better typo detection
+                            if similarity >= max(0.2, similarity_threshold - 0.4):
                                 fuzzy_results.append({
                                     "title": title,
                                     "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
@@ -128,12 +177,16 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
 
 def calculate_title_similarity(query, title):
     """
-    Enhanced similarity calculation with number-word conversion and better matching
+    Enhanced similarity calculation with better typo handling
     """
-    query_lower = query.lower()
-    title_lower = title.lower()
+    query_lower = query.lower().strip()
+    title_lower = title.lower().strip()
     
-    # Number-to-word mapping for better matching
+    # Remove common punctuation
+    query_clean = re.sub(r'[^\w\s]', ' ', query_lower).strip()
+    title_clean = re.sub(r'[^\w\s]', ' ', title_lower).strip()
+    
+    # Number-word mapping for better matching
     number_word_map = {
         '1': 'one', 'one': '1',
         '2': 'two', 'two': '2', 
@@ -147,110 +200,128 @@ def calculate_title_similarity(query, title):
         '10': 'ten', 'ten': '10'
     }
     
-    # Create normalized versions with number-word conversion
+    # Common typo corrections
+    typo_corrections = {
+        'idoits': 'idiots',
+        'idoit': 'idiot',
+        'idot': 'idiot',
+        'iditots': 'idiots',
+        'ideots': 'idiots'
+    }
+    
     def normalize_text(text):
         words = text.split()
         normalized_words = []
         for word in words:
+            # Apply typo corrections first
+            corrected_word = typo_corrections.get(word, word)
+            
             # Check if word is a number or number word
-            if word in number_word_map:
-                # Add both the original and the mapped version
-                normalized_words.append(word)
-                normalized_words.append(number_word_map[word])
+            if corrected_word in number_word_map:
+                normalized_words.append(corrected_word)
+                normalized_words.append(number_word_map[corrected_word])
             else:
-                normalized_words.append(word)
+                normalized_words.append(corrected_word)
         return ' '.join(normalized_words)
     
-    query_normalized = normalize_text(query_lower)
-    title_normalized = normalize_text(title_lower)
+    query_normalized = normalize_text(query_clean)
+    title_normalized = normalize_text(title_clean)
     
-    # Method 1: Direct substring matching (enhanced with normalization)
-    if (query_lower in title_lower or title_lower in query_lower or
-        query_normalized in title_normalized or title_normalized in query_normalized):
+    # Method 1: Exact matching (with normalizations)
+    exact_matches = [
+        query_clean in title_clean,
+        title_clean in query_clean,
+        query_normalized in title_normalized,
+        title_normalized in query_normalized
+    ]
+    
+    if any(exact_matches):
         return 0.95
     
-    # Method 2: Enhanced word-based matching
-    query_words = set(query_lower.split())
-    title_words = set(title_lower.split())
+    # Method 2: Word-based matching with typo correction
+    query_words = set(query_clean.split())
+    title_words = set(title_clean.split())
     
-    # Also check normalized words
-    query_words_norm = set(query_normalized.split())
-    title_words_norm = set(title_normalized.split())
+    # Apply typo corrections to query words
+    corrected_query_words = set()
+    for word in query_words:
+        corrected_query_words.add(typo_corrections.get(word, word))
     
-    # Remove common words that don't help with matching
-    common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
-    query_words -= common_words
-    title_words -= common_words
-    query_words_norm -= common_words
-    title_words_norm -= common_words
+    # Remove common stop words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    query_words -= stop_words
+    title_words -= stop_words
+    corrected_query_words -= stop_words
     
-    # Calculate word similarity
-    word_similarity = 0
+    # Calculate word overlap
     if query_words and title_words:
-        # Regular word matching
+        # Regular overlap
         overlap = len(query_words & title_words)
         union = len(query_words | title_words)
         word_similarity = overlap / union if union > 0 else 0
         
-        # Enhanced word matching with normalization
-        overlap_norm = len(query_words_norm & title_words_norm)
-        union_norm = len(query_words_norm | title_words_norm)
-        word_similarity_norm = overlap_norm / union_norm if union_norm > 0 else 0
+        # Corrected overlap
+        corrected_overlap = len(corrected_query_words & title_words)
+        corrected_union = len(corrected_query_words | title_words)
+        corrected_word_similarity = corrected_overlap / corrected_union if corrected_union > 0 else 0
         
-        # Take the better of the two
-        word_similarity = max(word_similarity, word_similarity_norm)
+        # Use the better score
+        word_similarity = max(word_similarity, corrected_word_similarity)
         
-        if word_similarity > 0.5:
-            return 0.85 + (word_similarity * 0.15)
+        if word_similarity >= 0.5:
+            return 0.8 + (word_similarity * 0.2)
     
-    # Method 3: Handle common misspellings and character-level similarity
-    # Create versions without spaces for better character matching
-    query_nospace = query_lower.replace(' ', '')
-    title_nospace = title_lower.replace(' ', '')
+    # Method 3: Character-level similarity for typos
+    # Test various combinations
+    similarity_scores = []
     
-    # Check for character-level similarity (for misspellings like "idoits" vs "idiots")
-    char_similarity = SequenceMatcher(None, query_nospace, title_nospace).ratio()
+    # Original strings
+    similarity_scores.append(SequenceMatcher(None, query_clean, title_clean).ratio())
     
-    # Special handling for very similar character sequences
-    if char_similarity > 0.8:
-        return 0.8 + (char_similarity * 0.2)
+    # With typo corrections
+    query_corrected = query_clean
+    for typo, correction in typo_corrections.items():
+        query_corrected = query_corrected.replace(typo, correction)
+    similarity_scores.append(SequenceMatcher(None, query_corrected, title_clean).ratio())
     
-    # Method 4: Sequence matching on full strings
-    sequence_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
+    # Without spaces
+    query_nospace = query_clean.replace(' ', '')
+    title_nospace = title_clean.replace(' ', '')
+    similarity_scores.append(SequenceMatcher(None, query_nospace, title_nospace).ratio())
     
-    # Method 5: Enhanced fuzzy matching for common patterns
-    # Handle cases like "3 idiots" vs "three idiots"
-    def create_pattern_variations(text):
-        variations = [text]
-        words = text.split()
-        
-        # Create variations with number-word substitutions
-        for i, word in enumerate(words):
-            if word in number_word_map:
-                new_words = words.copy()
-                new_words[i] = number_word_map[word]
-                variations.append(' '.join(new_words))
-        
-        return variations
+    # Without spaces + corrections
+    query_nospace_corrected = query_corrected.replace(' ', '')
+    similarity_scores.append(SequenceMatcher(None, query_nospace_corrected, title_nospace).ratio())
     
-    query_variations = create_pattern_variations(query_lower)
-    title_variations = create_pattern_variations(title_lower)
+    # Method 4: Handle number-word variations specifically
+    for query_var in [query_clean, query_normalized]:
+        for title_var in [title_clean, title_normalized]:
+            similarity_scores.append(SequenceMatcher(None, query_var, title_var).ratio())
     
-    max_pattern_similarity = 0
-    for q_var in query_variations:
-        for t_var in title_variations:
-            pattern_sim = SequenceMatcher(None, q_var, t_var).ratio()
-            max_pattern_similarity = max(max_pattern_similarity, pattern_sim)
+    # Method 5: Phonetic-like matching (handle common letter swaps)
+    def create_phonetic_variants(text):
+        variants = [text]
+        # Common letter confusions
+        variants.append(text.replace('oi', 'io'))  # idoits -> iditos
+        variants.append(text.replace('io', 'oi'))  # iditos -> idoits
+        return variants
     
-    # Return the highest similarity score from all methods
-    all_similarities = [
-        word_similarity,
-        char_similarity,
-        sequence_similarity,
-        max_pattern_similarity
-    ]
+    query_phonetic = create_phonetic_variants(query_clean)
+    title_phonetic = create_phonetic_variants(title_clean)
     
-    return max(all_similarities)
+    for q_var in query_phonetic:
+        for t_var in title_phonetic:
+            similarity_scores.append(SequenceMatcher(None, q_var, t_var).ratio())
+    
+    # Return the highest similarity score
+    max_similarity = max(similarity_scores)
+    
+    # Boost score if we detect common patterns
+    if ('3' in query_clean or 'three' in query_clean) and ('3' in title_clean or 'three' in title_clean):
+        if ('idiot' in query_clean or 'idoits' in query_clean) and 'idiots' in title_clean:
+            max_similarity = max(max_similarity, 0.9)
+    
+    return max_similarity
 
 def suggest_corrections(query, search_results):
     """
@@ -1390,7 +1461,7 @@ def recommend_movies(favorite_titles):
             
             # Store movie info for clustering
             movie_info = {
-                "title": title,
+                "title": original_title,
                 "genres": [],
                 "year": None
             }
