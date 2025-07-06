@@ -246,7 +246,8 @@ def suggest_corrections(query, search_results):
                                 "id": movie['id']
                             })
                             st.session_state["search_done"] = True     # ✅ Mark search done
-                            st.session_state["previous_query"] = ""    # ✅ Clear input too!
+                            st.session_state["previous_query"] = ""
+                            st.session_state["movie_search"] = ""  # ✅ clears input too
                             st.success(f"✅ Added {movie['title']}")
                             st.rerun()
             
@@ -255,7 +256,11 @@ def suggest_corrections(query, search_results):
 
 def enhanced_movie_search():
     """Enhanced movie search with fuzzy matching"""
-    search_query = st.text_input("search for a movie", key="movie_search")
+    search_query = st.text_input(
+        "search for a movie",
+        key="movie_search",
+        value=st.session_state["previous_query"]
+    )
 
     # Reset search_done when user types a different movie
     if search_query != st.session_state["previous_query"]:
@@ -309,7 +314,8 @@ def enhanced_movie_search():
                             "id": movie_id
                         })
                         st.session_state["search_done"] = True
-                        st.session_state["previous_query"] = ""   # ✅ Clear input too!
+                        st.session_state["previous_query"] = ""
+                        st.session_state["movie_search"] = ""  # ✅ clears input too
                         st.success(f"✅ Added {clean_title}")
                         st.rerun()
     
