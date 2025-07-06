@@ -245,7 +245,8 @@ def suggest_corrections(query, search_results):
                                 "poster_path": movie.get('poster_path', ''),
                                 "id": movie['id']
                             })
-                            st.session_state["search_done"] = True  # ✅ Hide Top 5
+                            st.session_state["search_done"] = True     # ✅ Mark search done
+                            st.session_state["previous_query"] = ""    # ✅ Clear input too!
                             st.success(f"✅ Added {movie['title']}")
                             st.rerun()
             
@@ -308,6 +309,7 @@ def enhanced_movie_search():
                             "id": movie_id
                         })
                         st.session_state["search_done"] = True
+                        st.session_state["previous_query"] = ""   # ✅ Clear input too!
                         st.success(f"✅ Added {clean_title}")
                         st.rerun()
     
