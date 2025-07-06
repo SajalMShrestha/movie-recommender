@@ -44,10 +44,32 @@ def generate_search_variations(query):
     clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
     variations.add(clean_query)
     
-    # Handle number-word conversions
-    number_word_map = {'3': 'three', 'three': '3'}
-    
     words = clean_query.split()
+    
+    # Handle number-word conversions
+    number_word_map = {
+        '12': 'twelve', 'twelve': '12',
+        '3': 'three', 'three': '3',
+        '2': 'two', 'two': '2',
+        '4': 'four', 'four': '4',
+        '5': 'five', 'five': '5',
+        '6': 'six', 'six': '6',
+        '7': 'seven', 'seven': '7',
+        '8': 'eight', 'eight': '8',
+        '9': 'nine', 'nine': '9',
+        '10': 'ten', 'ten': '10',
+        '11': 'eleven', 'eleven': '11'
+    }
+    
+    # Try number conversions
+    converted_words = []
+    for word in words:
+        if word in number_word_map:
+            converted_words.append(number_word_map[word])
+        else:
+            converted_words.append(word)
+    if converted_words != words:
+        variations.add(' '.join(converted_words))
     
     # For two-word queries, try searching for the full phrase with corrections
     if len(words) == 2:
@@ -61,16 +83,11 @@ def generate_search_variations(query):
             variations.add(f"{word1} girl")
         elif word2 == "gne":
             variations.add(f"gone {word1}")
-            
-        # Also try searching for just the first word to get broader results
-        variations.add(word1)
-    
-    # Handle number-word conversions
-    for i, word in enumerate(words):
-        if word in number_word_map:
-            new_words = words.copy()
-            new_words[i] = number_word_map[word]
-            variations.add(' '.join(new_words))
+        
+        # For queries with numbers, DON'T split them
+        if not (word1.isdigit() or word2.isdigit()):
+            # Only add individual words if neither is a number
+            variations.add(word1)
     
     # Add space-corrected version for concatenated words
     if ' ' not in clean_query and len(clean_query) > 3:
@@ -78,12 +95,14 @@ def generate_search_variations(query):
         if spaced_query != clean_query:
             variations.add(spaced_query)
     
-    # Add individual significant words (for partial matching)
+    # Add individual significant words (but not standalone numbers)
     for word in words:
+        if word.isdigit():
+            continue  # Skip standalone numbers
         if len(word) > 3:  # Only longer words
             variations.add(word)
     
-    return list(variations)[:5]
+    return list(variations)[:8]
 
 def generate_comprehensive_search_terms(query):
     """
@@ -231,6 +250,37 @@ def generate_broad_search_terms(query):
     
     words = clean_query.split()
     
+    # IMPORTANT: For queries with numbers, always search for the full phrase first
+    # This helps find movies like "12 Monkeys", "3 Idiots", etc.
+    if any(word.isdigit() for word in words):
+        # Keep the full query together
+        terms.add(query.strip())
+        
+        # Also try converting numbers to words
+        number_word_map = {
+            '12': 'twelve', 'twelve': '12',
+            '3': 'three', 'three': '3',
+            '2': 'two', 'two': '2',
+            '4': 'four', 'four': '4',
+            '5': 'five', 'five': '5',
+            '6': 'six', 'six': '6',
+            '7': 'seven', 'seven': '7',
+            '8': 'eight', 'eight': '8',
+            '9': 'nine', 'nine': '9',
+            '10': 'ten', 'ten': '10',
+            '11': 'eleven', 'eleven': '11'
+        }
+        
+        # Try number-to-word conversions
+        converted_words = []
+        for word in words:
+            if word in number_word_map:
+                converted_words.append(number_word_map[word])
+            else:
+                converted_words.append(word)
+        if converted_words != words:
+            terms.add(' '.join(converted_words))
+    
     # For two-word queries, add corrected versions
     if len(words) == 2:
         word1, word2 = words
@@ -245,18 +295,25 @@ def generate_broad_search_terms(query):
         elif word1 == "gne":
             terms.add(f"gone {word2}")
             terms.add("gone")
-            
-        # Add both words individually
-        terms.add(word1)
-        terms.add(word2)
+        
+        # For number + word combinations, keep them together
+        if not (word1.isdigit() or word2.isdigit()):
+            # Only split if neither word is a number
+            terms.add(word1)
+            terms.add(word2)
     
-    # Individual words (most important for casting wide net)
+    # Individual words (but be careful with numbers)
     for word in words:
+        # Skip individual number searches unless it's a very long number
+        if word.isdigit() and len(word) < 4:
+            continue
         if len(word) >= 3:  # Only meaningful words
             terms.add(word)
     
     # Partial words (first 3-4 characters of longer words)
     for word in words:
+        if word.isdigit():  # Skip numbers
+            continue
         if len(word) >= 5:
             terms.add(word[:4])  # "miami" -> "miam"
         elif len(word) == 4:
@@ -273,9 +330,13 @@ def generate_broad_search_terms(query):
                 expanded_terms.add(term.replace("grl", "girl"))
             if "gne" in term:
                 expanded_terms.add(term.replace("gne", "gone"))
+            if "exprss" in term:
+                expanded_terms.add(term.replace("exprss", "express"))
+            if "idoits" in term:
+                expanded_terms.add(term.replace("idoits", "idiots"))
     
     # Convert back to list and limit
-    return list(expanded_terms)[:10]
+    return list(expanded_terms)[:15]  # Increased limit for better coverage
 
 # Alternative approach using difflib if you can't install rapidfuzz
 def fuzzy_search_movies_difflib(query, max_results=10, similarity_threshold=0.6):
