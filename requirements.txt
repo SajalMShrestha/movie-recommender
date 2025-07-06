@@ -10,3 +10,4 @@ textstat
 sentence-transformers
 gspread
 oauth2client
+    
