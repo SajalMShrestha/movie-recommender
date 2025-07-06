@@ -66,9 +66,55 @@ def generate_search_variations(query):
     
     return list(variations)[:5]
 
+def generate_comprehensive_search_terms(query):
+    """
+    Generate search terms that will help us find the right movie in candidate pool
+    """
+    terms = set()
+    
+    # Original query
+    terms.add(query.strip())
+    
+    # Clean query
+    clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
+    terms.add(clean_query)
+    
+    # Individual words (to cast wide net)
+    words = clean_query.split()
+    for word in words:
+        if len(word) >= 3:  # Only meaningful words
+            terms.add(word)
+    
+    # Partial combinations to catch compound titles
+    if len(words) == 2:
+        # For 2-word titles, try each word individually to get broader results
+        terms.add(words[0])
+        terms.add(words[1])
+    
+    # Handle common typos in individual words
+    corrected_words = []
+    for word in words:
+        # Apply basic corrections
+        corrected_word = word
+        
+        # Common letter swaps/omissions
+        if 'grl' in word:
+            corrected_word = word.replace('grl', 'girl')
+        if 'gne' in word:
+            corrected_word = word.replace('gne', 'gone')
+        
+        corrected_words.append(corrected_word)
+        terms.add(corrected_word)
+    
+    # Add corrected full query
+    if corrected_words != words:
+        terms.add(' '.join(corrected_words))
+    
+    return list(terms)[:8]  # Limit search terms
+
 def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
     """
-    Balanced fuzzy search - not too complex, not too simple
+    Title-level fuzzy search - treats entire titles as units for matching
     """
     try:
         # First try direct search
@@ -82,57 +128,64 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
             
             # If we get good results from direct search, return them
             if len(results) >= 3:
-                return [
-                    {
-                        "title": m.get('title', ''),
-                        "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
-                        "id": m.get('id'),
-                        "poster_path": m.get('poster_path'),
-                        "similarity": 1.0
-                    }
-                    for m in results[:max_results]
-                    if m.get('title') and m.get('id')
-                ]
+                # But still check if any are good fuzzy matches for the full title
+                good_matches = []
+                for m in results[:max_results]:
+                    if m.get('title') and m.get('id'):
+                        title_similarity = calculate_title_similarity(query, m.get('title', ''))
+                        good_matches.append({
+                            "title": m.get('title', ''),
+                            "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
+                            "id": m.get('id'),
+                            "poster_path": m.get('poster_path'),
+                            "similarity": title_similarity
+                        })
+                
+                # If we have good direct matches, return them
+                if any(match['similarity'] > 0.8 for match in good_matches):
+                    return sorted(good_matches, key=lambda x: x['similarity'], reverse=True)
         
-        # If direct search fails, try fuzzy matching
-        fuzzy_results = []
-        search_variations = generate_search_variations(query)
+        # If direct search fails or gives poor matches, do comprehensive fuzzy search
+        # Strategy: Search with individual words AND partial queries to get a large candidate pool
         
-        for search_term in search_variations:
+        candidate_pool = set()
+        search_terms = generate_comprehensive_search_terms(query)
+        
+        for search_term in search_terms:
             try:
                 params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
                 response = requests.get(url, params=params)
                 
                 if response.status_code == 200:
-                    word_results = response.json().get("results", [])
-                    for movie in word_results[:12]:  # Reasonable number per variation
-                        title = movie.get('title', '')
-                        if title:
-                            similarity = calculate_title_similarity(query, title)
-                            # LOWER threshold for better typo tolerance
-                            if similarity >= 0.3:  # Lowered from 0.5 to 0.3
-                                fuzzy_results.append({
-                                    "title": title,
-                                    "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
-                                    "id": movie.get('id'),
-                                    "poster_path": movie.get('poster_path'),
-                                    "similarity": similarity
-                                })
+                    results = response.json().get("results", [])
+                    # Add all results to candidate pool (we'll filter by similarity later)
+                    for movie in results[:20]:  # Top 20 per search term
+                        if movie.get('title') and movie.get('id'):
+                            candidate_pool.add((
+                                movie.get('title', ''),
+                                movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                                movie.get('id'),
+                                movie.get('poster_path', '')
+                            ))
             except:
                 continue
         
-        # Remove duplicates and sort by similarity
-        seen_ids = set()
-        unique_results = []
-        for result in fuzzy_results:
-            if result['id'] not in seen_ids:
-                seen_ids.add(result['id'])
-                unique_results.append(result)
+        # Now do title-level fuzzy matching on all candidates
+        fuzzy_results = []
+        for title, year, movie_id, poster_path in candidate_pool:
+            similarity = calculate_title_similarity(query, title)
+            if similarity >= 0.2:  # Very low threshold - we'll sort by similarity
+                fuzzy_results.append({
+                    "title": title,
+                    "year": year,
+                    "id": movie_id,
+                    "poster_path": poster_path,
+                    "similarity": similarity
+                })
         
-        # Sort by similarity score (highest first)
-        unique_results.sort(key=lambda x: x['similarity'], reverse=True)
-        
-        return unique_results[:max_results]
+        # Sort by similarity and return top results
+        fuzzy_results.sort(key=lambda x: x['similarity'], reverse=True)
+        return fuzzy_results[:max_results]
         
     except Exception as e:
         st.warning(f"Fuzzy search error: {e}")
@@ -140,7 +193,7 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
 
 def calculate_title_similarity(query, title):
     """
-    Balanced similarity calculation - simple but effective
+    Enhanced title-level similarity that treats titles as complete units
     """
     query_lower = query.lower().strip()
     title_lower = title.lower().strip()
@@ -149,61 +202,62 @@ def calculate_title_similarity(query, title):
     if query_lower == title_lower:
         return 1.0
     
-    # Method 2: Substring matching
+    # Method 2: Direct substring matching
     if query_lower in title_lower or title_lower in query_lower:
         return 0.95
     
-    # Method 3: Handle "3 idiots" specifically with typo tolerance
-    # Check if this looks like a "3 idiots" query
-    if ('3' in query_lower or 'three' in query_lower or 'thre' in query_lower):
-        # Normalize both sides
-        query_normalized = query_lower.replace('thre', 'three').replace('idoits', 'idiots').replace('idoit', 'idiots')
-        title_normalized = title_lower
-        
-        # Check for "3 idiots" match with normalization
-        if (('3' in query_normalized or 'three' in query_normalized) and 
-            'idiots' in query_normalized and
-            ('3' in title_normalized or 'three' in title_normalized) and
-            'idiots' in title_normalized):
-            return 0.9
-    
-    # Method 4: Word-based similarity
-    query_words = set(query_lower.split())
-    title_words = set(title_lower.split())
-    
-    # Remove stop words
-    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
-    query_words_clean = query_words - stop_words
-    title_words_clean = title_words - stop_words
-    
-    if query_words_clean and title_words_clean:
-        # Direct word overlap
-        overlap = len(query_words_clean & title_words_clean)
-        union = len(query_words_clean | title_words_clean)
-        jaccard = overlap / union if union > 0 else 0
-        
-        if jaccard >= 0.5:
-            return 0.8 + (jaccard * 0.2)
-        
-        # Fuzzy word matching for typos
-        fuzzy_matches = 0
-        for q_word in query_words_clean:
-            for t_word in title_words_clean:
-                if len(q_word) > 2 and len(t_word) > 2:
-                    # Character-level similarity for individual words
-                    word_sim = SequenceMatcher(None, q_word, t_word).ratio()
-                    if word_sim >= 0.7:  # Lower threshold for word-level matching
-                        fuzzy_matches += 1
-                        break
-        
-        fuzzy_ratio = fuzzy_matches / len(query_words_clean) if query_words_clean else 0
-        if fuzzy_ratio >= 0.5:
-            return 0.7 + (fuzzy_ratio * 0.2)
-    
-    # Method 5: Character-level similarity (fallback)
+    # Method 3: Character-level similarity (most important for typos)
     char_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
     
-    return char_similarity
+    # Method 4: Word-level fuzzy matching
+    query_words = query_lower.split()
+    title_words = title_lower.split()
+    
+    # Remove articles for better matching
+    stop_words = {'the', 'a', 'an'}
+    query_words_clean = [w for w in query_words if w not in stop_words]
+    title_words_clean = [w for w in title_words if w not in stop_words]
+    
+    word_similarities = []
+    
+    if len(query_words_clean) == len(title_words_clean):
+        # Same number of words - compare position by position
+        for q_word, t_word in zip(query_words_clean, title_words_clean):
+            word_sim = SequenceMatcher(None, q_word, t_word).ratio()
+            word_similarities.append(word_sim)
+        
+        avg_word_similarity = sum(word_similarities) / len(word_similarities) if word_similarities else 0
+        
+        # If average word similarity is high, this is likely the right title
+        if avg_word_similarity >= 0.7:
+            return 0.85 + (avg_word_similarity * 0.15)
+    
+    # Method 5: Best word matching (for different word counts)
+    if query_words_clean and title_words_clean:
+        total_similarity = 0
+        for q_word in query_words_clean:
+            best_match = max(
+                SequenceMatcher(None, q_word, t_word).ratio() 
+                for t_word in title_words_clean
+            )
+            total_similarity += best_match
+        
+        avg_best_similarity = total_similarity / len(query_words_clean)
+        if avg_best_similarity >= 0.6:
+            return 0.75 + (avg_best_similarity * 0.25)
+    
+    # Method 6: Handle specific common patterns
+    # "gone grl" -> "gone girl"
+    if len(query_words_clean) == 2 and len(title_words_clean) == 2:
+        # Check if first words match well and second words are similar
+        first_word_sim = SequenceMatcher(None, query_words_clean[0], title_words_clean[0]).ratio()
+        second_word_sim = SequenceMatcher(None, query_words_clean[1], title_words_clean[1]).ratio()
+        
+        if first_word_sim >= 0.8 and second_word_sim >= 0.6:
+            return 0.8 + ((first_word_sim + second_word_sim) / 2 * 0.2)
+    
+    # Return the best similarity score
+    return max(char_similarity, avg_word_similarity if word_similarities else 0)
 
 def suggest_corrections(query, search_results):
     """
@@ -1930,3 +1984,21 @@ def test_universal_fuzzy():
     for query, expected in test_cases:
         similarity = calculate_title_similarity(query, expected)
         print(f"'{query}' vs '{expected}': {similarity:.3f}")
+
+# Test cases for verification
+def test_title_matching():
+    """Test the enhanced title matching"""
+    test_cases = [
+        ("gone grl", "Gone Girl"),
+        ("gne girl", "Gone Girl"),
+        ("thre idiots", "3 Idiots"),
+        ("avengrs", "Avengers"),
+        ("jurrasic park", "Jurassic Park")
+    ]
+    
+    print("Testing enhanced title-level fuzzy matching:")
+    for query, expected_title in test_cases:
+        similarity = calculate_title_similarity(query, expected_title)
+        print(f"'{query}' vs '{expected_title}': {similarity:.3f}")
+
+# Test the universal approach
