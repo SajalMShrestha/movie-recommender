@@ -245,7 +245,7 @@ def suggest_corrections(query, search_results):
                                 "poster_path": movie.get('poster_path', ''),
                                 "id": movie['id']
                             })
-                            st.session_state["search_done"] = True  # ✅ matches old version behavior
+                            st.session_state["search_done"] = True  # ✅ Hide Top 5
                             st.success(f"✅ Added {movie['title']}")
                             st.rerun()
             
