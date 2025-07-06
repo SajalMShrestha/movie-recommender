@@ -213,15 +213,15 @@ def suggest_corrections(query, search_results):
         st.info(f"🔍 **Showing closest matches for '{query}'**")
         
         # Try fuzzy search
-        fuzzy_results = fuzzy_search_movies(query, max_results=8, similarity_threshold=0.2)
+        fuzzy_results = fuzzy_search_movies(query, max_results=5, similarity_threshold=0.2)
         
         if fuzzy_results:
             st.write("**Did you mean one of these?**")
             
             # Show fuzzy results in a grid
-            cols = st.columns(min(4, len(fuzzy_results)))
-            for idx, movie in enumerate(fuzzy_results[:8]):
-                with cols[idx % 4]:
+            cols = st.columns(5)
+            for idx, movie in enumerate(fuzzy_results[:5]):
+                with cols[idx % 5]:
                     if movie.get('poster_path'):
                         poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}"
                         st.image(poster_url, use_column_width=True)
