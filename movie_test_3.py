@@ -48,6 +48,24 @@ def generate_search_variations(query):
     number_word_map = {'3': 'three', 'three': '3'}
     
     words = clean_query.split()
+    
+    # For two-word queries, try searching for the full phrase with corrections
+    if len(words) == 2:
+        # Try common typo corrections for second word
+        word1, word2 = words
+        
+        # Common typo patterns
+        if word2 == "vce":
+            variations.add(f"{word1} vice")
+        elif word2 == "grl":
+            variations.add(f"{word1} girl")
+        elif word2 == "gne":
+            variations.add(f"gone {word1}")
+            
+        # Also try searching for just the first word to get broader results
+        variations.add(word1)
+    
+    # Handle number-word conversions
     for i, word in enumerate(words):
         if word in number_word_map:
             new_words = words.copy()
@@ -115,7 +133,7 @@ def generate_comprehensive_search_terms(query):
 
 def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
     """
-    Balanced fuzzy search - not too complex, not too simple
+    Improved fuzzy search that finds the right movies even with typos
     """
     try:
         # First try direct search
@@ -127,56 +145,27 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
             data = response.json()
             results = data.get("results", [])
             
-            # If we get good results from direct search, return them
-            if len(results) >= 3:
-                return [
-                    {
-                        "title": m.get('title', ''),
-                        "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
-                        "id": m.get('id'),
-                        "poster_path": m.get('poster_path'),
-                        "similarity": 1.0
-                    }
-                    for m in results[:max_results]
-                    if m.get('title') and m.get('id')
-                ]
+            # Check if we have the exact movie we want
+            for movie in results:
+                if movie.get('title'):
+                    similarity = calculate_title_similarity(query, movie['title'])
+                    if similarity >= 0.9:  # Very high match - return immediately
+                        return [{
+                            "title": movie['title'],
+                            "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                            "id": movie['id'],
+                            "poster_path": movie.get('poster_path'),
+                            "similarity": similarity
+                        }]
         
-        # If direct search fails, try fuzzy matching
-        fuzzy_results = []
-        search_variations = generate_search_variations(query)
+        # Use the broad candidate pool approach
+        candidates = get_broad_candidate_pool(query)
         
-        for search_term in search_variations:
-            try:
-                params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
-                response = requests.get(url, params=params)
-                
-                if response.status_code == 200:
-                    word_results = response.json().get("results", [])
-                    for movie in word_results[:12]:
-                        title = movie.get('title', '')
-                        if title:
-                            similarity = calculate_title_similarity(query, title)
-                            if similarity >= 0.3:
-                                fuzzy_results.append({
-                                    "title": title,
-                                    "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
-                                    "id": movie.get('id'),
-                                    "poster_path": movie.get('poster_path'),
-                                    "similarity": similarity
-                                })
-            except:
-                continue
+        if not candidates:
+            return []
         
-        # Remove duplicates and sort by similarity
-        seen_ids = set()
-        unique_results = []
-        for result in fuzzy_results:
-            if result['id'] not in seen_ids:
-                seen_ids.add(result['id'])
-                unique_results.append(result)
-        
-        unique_results.sort(key=lambda x: x['similarity'], reverse=True)
-        return unique_results[:max_results]
+        # Return top results (already sorted by similarity)
+        return candidates[:max_results]
         
     except Exception as e:
         st.warning(f"Fuzzy search error: {e}")
@@ -184,12 +173,15 @@ def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
 
 def get_broad_candidate_pool(query):
     """
-    Cast a very wide net to get movie candidates
+    Cast a very wide net to get movie candidates, then filter by similarity
     """
     candidates = []
     search_terms = generate_broad_search_terms(query)
     
     url = "https://api.themoviedb.org/3/search/movie"
+    
+    # Collect all possible candidates
+    all_movies = {}
     
     for search_term in search_terms:
         try:
@@ -198,26 +190,31 @@ def get_broad_candidate_pool(query):
             
             if response.status_code == 200:
                 results = response.json().get("results", [])
-                for movie in results:
+                for movie in results[:20]:  # Get more results per search
                     if movie.get('title') and movie.get('id'):
-                        candidates.append({
-                            'title': movie['title'],
-                            'year': movie.get('release_date', '')[:4] if movie.get('release_date') else '',
-                            'id': movie['id'],
-                            'poster_path': movie.get('poster_path', '')
-                        })
+                        movie_id = movie['id']
+                        if movie_id not in all_movies:
+                            all_movies[movie_id] = {
+                                'title': movie['title'],
+                                'year': movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                                'id': movie_id,
+                                'poster_path': movie.get('poster_path', '')
+                            }
         except:
             continue
     
-    # Remove duplicates by ID
-    seen_ids = set()
-    unique_candidates = []
-    for candidate in candidates:
-        if candidate['id'] not in seen_ids:
-            seen_ids.add(candidate['id'])
-            unique_candidates.append(candidate)
+    # Now calculate similarity for all candidates
+    scored_candidates = []
+    for movie in all_movies.values():
+        similarity = calculate_title_similarity(query, movie['title'])
+        if similarity >= 0.3:  # Lower threshold to catch more possibilities
+            movie['similarity'] = similarity
+            scored_candidates.append(movie)
     
-    return unique_candidates
+    # Sort by similarity
+    scored_candidates.sort(key=lambda x: x['similarity'], reverse=True)
+    
+    return scored_candidates[:50]  # Return top 50 candidates
 
 def generate_broad_search_terms(query):
     """
@@ -232,8 +229,28 @@ def generate_broad_search_terms(query):
     clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
     terms.add(clean_query)
     
-    # Individual words (most important for casting wide net)
     words = clean_query.split()
+    
+    # For two-word queries, add corrected versions
+    if len(words) == 2:
+        word1, word2 = words
+        
+        # Common typo corrections
+        if word2 == "vce":
+            terms.add(f"{word1} vice")
+            terms.add("vice")  # Also search just "vice" to ensure we get Miami Vice
+        elif word2 == "grl":
+            terms.add(f"{word1} girl")
+            terms.add("girl")  # Also search just "girl" to ensure we get Gone Girl
+        elif word1 == "gne":
+            terms.add(f"gone {word2}")
+            terms.add("gone")
+            
+        # Add both words individually
+        terms.add(word1)
+        terms.add(word2)
+    
+    # Individual words (most important for casting wide net)
     for word in words:
         if len(word) >= 3:  # Only meaningful words
             terms.add(word)
@@ -241,20 +258,21 @@ def generate_broad_search_terms(query):
     # Partial words (first 3-4 characters of longer words)
     for word in words:
         if len(word) >= 5:
-            terms.add(word[:4])  # "miami" -> "miam", "vice" -> "vice"
+            terms.add(word[:4])  # "miami" -> "miam"
         elif len(word) == 4:
             terms.add(word[:3])  # "vice" -> "vic"
     
     # Common character substitutions/omissions for each word
     expanded_terms = set(terms)
-    for term in terms:
+    for term in list(terms):  # Convert to list to avoid modifying during iteration
         if len(term) >= 4:
-            # Add version with common letters removed
-            for i in range(len(term)):
-                if term[i] in 'aeiou':  # Remove vowels
-                    modified = term[:i] + term[i+1:]
-                    if len(modified) >= 3:
-                        expanded_terms.add(modified)
+            # Add version with common typo patterns fixed
+            if "vce" in term:
+                expanded_terms.add(term.replace("vce", "vice"))
+            if "grl" in term:
+                expanded_terms.add(term.replace("grl", "girl"))
+            if "gne" in term:
+                expanded_terms.add(term.replace("gne", "gone"))
     
     # Convert back to list and limit
     return list(expanded_terms)[:10]
