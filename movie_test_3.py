@@ -115,42 +115,68 @@ def generate_comprehensive_search_terms(query):
 
 def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
     """
-    Production-ready fuzzy search using proven algorithms
+    Balanced fuzzy search - not too complex, not too simple
     """
     try:
-        # Step 1: Get a large pool of candidates using multiple broad searches
-        candidate_pool = get_broad_candidate_pool(query)
+        # First try direct search
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": query}
+        response = requests.get(url, params=params)
         
-        if not candidate_pool:
-            return []
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            
+            # If we get good results from direct search, return them
+            if len(results) >= 3:
+                return [
+                    {
+                        "title": m.get('title', ''),
+                        "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
+                        "id": m.get('id'),
+                        "poster_path": m.get('poster_path'),
+                        "similarity": 1.0
+                    }
+                    for m in results[:max_results]
+                    if m.get('title') and m.get('id')
+                ]
         
-        # Step 2: Use rapidfuzz to find best matches
-        movie_titles = [(movie['title'], movie) for movie in candidate_pool]
-        titles_only = [title for title, _ in movie_titles]
+        # If direct search fails, try fuzzy matching
+        fuzzy_results = []
+        search_variations = generate_search_variations(query)
         
-        # Get best fuzzy matches using multiple algorithms
-        matches = process.extract(
-            query, 
-            titles_only, 
-            scorer=fuzz.WRatio,  # Best overall algorithm for partial matches
-            limit=max_results * 2  # Get more candidates than needed
-        )
+        for search_term in search_variations:
+            try:
+                params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
+                response = requests.get(url, params=params)
+                
+                if response.status_code == 200:
+                    word_results = response.json().get("results", [])
+                    for movie in word_results[:12]:
+                        title = movie.get('title', '')
+                        if title:
+                            similarity = calculate_title_similarity(query, title)
+                            if similarity >= 0.3:
+                                fuzzy_results.append({
+                                    "title": title,
+                                    "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                                    "id": movie.get('id'),
+                                    "poster_path": movie.get('poster_path'),
+                                    "similarity": similarity
+                                })
+            except:
+                continue
         
-        # Convert back to movie objects with similarity scores
-        results = []
-        for title, score, _ in matches:
-            if score >= (similarity_threshold * 100):  # rapidfuzz uses 0-100 scale
-                # Find the corresponding movie data
-                movie_data = next(movie for t, movie in movie_titles if t == title)
-                results.append({
-                    "title": movie_data['title'],
-                    "year": movie_data['year'],
-                    "id": movie_data['id'],
-                    "poster_path": movie_data['poster_path'],
-                    "similarity": score / 100.0  # Convert back to 0-1 scale
-                })
+        # Remove duplicates and sort by similarity
+        seen_ids = set()
+        unique_results = []
+        for result in fuzzy_results:
+            if result['id'] not in seen_ids:
+                seen_ids.add(result['id'])
+                unique_results.append(result)
         
-        return results[:max_results]
+        unique_results.sort(key=lambda x: x['similarity'], reverse=True)
+        return unique_results[:max_results]
         
     except Exception as e:
         st.warning(f"Fuzzy search error: {e}")
