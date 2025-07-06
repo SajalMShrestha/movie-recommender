@@ -4,10 +4,9 @@ firebase-admin
 tmdbv3api==1.9.0
 nltk==3.8.1
 requests==2.31.0
-
 pandas==2.2.0
 textstat
 sentence-transformers
 gspread
 oauth2client
-    
+rapidfuzz==3.6.1
