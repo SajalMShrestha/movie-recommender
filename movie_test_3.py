@@ -1459,16 +1459,20 @@ def recommend_movies(favorite_titles):
         tmdb.api_key
     )
 
-
+    st.write(f"✅ Custom candidate pool size: {len(candidate_movie_ids)} movies")
 
     # Limit to first 150 candidates
     candidate_movie_ids = list(candidate_movie_ids)[:150]
 
     # Analyze taste diversity
     diversity_metrics = analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years)
+    st.write(f"🎯 Taste profile: {diversity_metrics['taste_profile']}")
     
     # Identify taste clusters
     cluster_centers, cluster_labels = identify_taste_clusters(favorite_embeddings, favorite_movies_info)
+    
+    if cluster_centers:
+        st.write(f"🎬 Identified {len(cluster_centers)} distinct taste clusters")
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
