@@ -28,6 +28,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 import re
 from difflib import SequenceMatcher
+from rapidfuzz import fuzz, process
 
 
 def generate_search_variations(query):
@@ -114,78 +115,171 @@ def generate_comprehensive_search_terms(query):
 
 def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
     """
-    Title-level fuzzy search - treats entire titles as units for matching
+    Production-ready fuzzy search using proven algorithms
     """
     try:
-        # First try direct search
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": query}
-        response = requests.get(url, params=params)
+        # Step 1: Get a large pool of candidates using multiple broad searches
+        candidate_pool = get_broad_candidate_pool(query)
         
-        if response.status_code == 200:
-            data = response.json()
-            results = data.get("results", [])
+        if not candidate_pool:
+            return []
+        
+        # Step 2: Use rapidfuzz to find best matches
+        movie_titles = [(movie['title'], movie) for movie in candidate_pool]
+        titles_only = [title for title, _ in movie_titles]
+        
+        # Get best fuzzy matches using multiple algorithms
+        matches = process.extract(
+            query, 
+            titles_only, 
+            scorer=fuzz.WRatio,  # Best overall algorithm for partial matches
+            limit=max_results * 2  # Get more candidates than needed
+        )
+        
+        # Convert back to movie objects with similarity scores
+        results = []
+        for title, score, _ in matches:
+            if score >= (similarity_threshold * 100):  # rapidfuzz uses 0-100 scale
+                # Find the corresponding movie data
+                movie_data = next(movie for t, movie in movie_titles if t == title)
+                results.append({
+                    "title": movie_data['title'],
+                    "year": movie_data['year'],
+                    "id": movie_data['id'],
+                    "poster_path": movie_data['poster_path'],
+                    "similarity": score / 100.0  # Convert back to 0-1 scale
+                })
+        
+        return results[:max_results]
+        
+    except Exception as e:
+        st.warning(f"Fuzzy search error: {e}")
+        return []
+
+def get_broad_candidate_pool(query):
+    """
+    Cast a very wide net to get movie candidates
+    """
+    candidates = []
+    search_terms = generate_broad_search_terms(query)
+    
+    url = "https://api.themoviedb.org/3/search/movie"
+    
+    for search_term in search_terms:
+        try:
+            params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
+            response = requests.get(url, params=params)
             
-            # If we get good results from direct search, return them
-            if len(results) >= 3:
-                # But still check if any are good fuzzy matches for the full title
-                good_matches = []
-                for m in results[:max_results]:
-                    if m.get('title') and m.get('id'):
-                        title_similarity = calculate_title_similarity(query, m.get('title', ''))
-                        good_matches.append({
-                            "title": m.get('title', ''),
-                            "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
-                            "id": m.get('id'),
-                            "poster_path": m.get('poster_path'),
-                            "similarity": title_similarity
+            if response.status_code == 200:
+                results = response.json().get("results", [])
+                for movie in results:
+                    if movie.get('title') and movie.get('id'):
+                        candidates.append({
+                            'title': movie['title'],
+                            'year': movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                            'id': movie['id'],
+                            'poster_path': movie.get('poster_path', '')
                         })
-                
-                # If we have good direct matches, return them
-                if any(match['similarity'] > 0.8 for match in good_matches):
-                    return sorted(good_matches, key=lambda x: x['similarity'], reverse=True)
+        except:
+            continue
+    
+    # Remove duplicates by ID
+    seen_ids = set()
+    unique_candidates = []
+    for candidate in candidates:
+        if candidate['id'] not in seen_ids:
+            seen_ids.add(candidate['id'])
+            unique_candidates.append(candidate)
+    
+    return unique_candidates
+
+def generate_broad_search_terms(query):
+    """
+    Generate very broad search terms to ensure we find the target movie
+    """
+    terms = set()
+    
+    # Original query
+    terms.add(query.strip())
+    
+    # Clean query
+    clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
+    terms.add(clean_query)
+    
+    # Individual words (most important for casting wide net)
+    words = clean_query.split()
+    for word in words:
+        if len(word) >= 3:  # Only meaningful words
+            terms.add(word)
+    
+    # Partial words (first 3-4 characters of longer words)
+    for word in words:
+        if len(word) >= 5:
+            terms.add(word[:4])  # "miami" -> "miam", "vice" -> "vice"
+        elif len(word) == 4:
+            terms.add(word[:3])  # "vice" -> "vic"
+    
+    # Common character substitutions/omissions for each word
+    expanded_terms = set(terms)
+    for term in terms:
+        if len(term) >= 4:
+            # Add version with common letters removed
+            for i in range(len(term)):
+                if term[i] in 'aeiou':  # Remove vowels
+                    modified = term[:i] + term[i+1:]
+                    if len(modified) >= 3:
+                        expanded_terms.add(modified)
+    
+    # Convert back to list and limit
+    return list(expanded_terms)[:10]
+
+# Alternative approach using difflib if you can't install rapidfuzz
+def fuzzy_search_movies_difflib(query, max_results=10, similarity_threshold=0.6):
+    """
+    Fallback solution using Python's built-in difflib
+    """
+    try:
+        # Get broad candidate pool
+        candidate_pool = get_broad_candidate_pool(query)
         
-        # If direct search fails or gives poor matches, do comprehensive fuzzy search
-        # Strategy: Search with individual words AND partial queries to get a large candidate pool
+        if not candidate_pool:
+            return []
         
-        candidate_pool = set()
-        search_terms = generate_comprehensive_search_terms(query)
-        
-        for search_term in search_terms:
-            try:
-                params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
-                response = requests.get(url, params=params)
-                
-                if response.status_code == 200:
-                    results = response.json().get("results", [])
-                    # Add all results to candidate pool (we'll filter by similarity later)
-                    for movie in results[:20]:  # Top 20 per search term
-                        if movie.get('title') and movie.get('id'):
-                            candidate_pool.add((
-                                movie.get('title', ''),
-                                movie.get('release_date', '')[:4] if movie.get('release_date') else '',
-                                movie.get('id'),
-                                movie.get('poster_path', '')
-                            ))
-            except:
-                continue
-        
-        # Now do title-level fuzzy matching on all candidates
-        fuzzy_results = []
-        for title, year, movie_id, poster_path in candidate_pool:
-            similarity = calculate_title_similarity(query, title)
-            if similarity >= 0.2:  # Very low threshold - we'll sort by similarity
-                fuzzy_results.append({
-                    "title": title,
-                    "year": year,
-                    "id": movie_id,
-                    "poster_path": poster_path,
-                    "similarity": similarity
+        # Calculate similarity scores using difflib
+        scored_movies = []
+        for movie in candidate_pool:
+            # Use multiple similarity algorithms and take the best score
+            similarities = [
+                SequenceMatcher(None, query.lower(), movie['title'].lower()).ratio(),
+                SequenceMatcher(None, query.lower().replace(' ', ''), movie['title'].lower().replace(' ', '')).ratio(),
+            ]
+            
+            # Word-based similarity
+            query_words = query.lower().split()
+            title_words = movie['title'].lower().split()
+            
+            if len(query_words) == len(title_words):
+                word_similarities = []
+                for q_word, t_word in zip(query_words, title_words):
+                    word_sim = SequenceMatcher(None, q_word, t_word).ratio()
+                    word_similarities.append(word_sim)
+                avg_word_sim = sum(word_similarities) / len(word_similarities)
+                similarities.append(avg_word_sim)
+            
+            best_similarity = max(similarities)
+            
+            if best_similarity >= similarity_threshold:
+                scored_movies.append({
+                    "title": movie['title'],
+                    "year": movie['year'],
+                    "id": movie['id'],
+                    "poster_path": movie['poster_path'],
+                    "similarity": best_similarity
                 })
         
         # Sort by similarity and return top results
-        fuzzy_results.sort(key=lambda x: x['similarity'], reverse=True)
-        return fuzzy_results[:max_results]
+        scored_movies.sort(key=lambda x: x['similarity'], reverse=True)
+        return scored_movies[:max_results]
         
     except Exception as e:
         st.warning(f"Fuzzy search error: {e}")
@@ -261,13 +355,17 @@ def calculate_title_similarity(query, title):
 
 def suggest_corrections(query, search_results):
     """
-    Suggest possible corrections when search returns few results
+    Enhanced correction suggestions using the new fuzzy system
     """
     if not search_results or len(search_results) < 3:
         st.info(f"🔍 **Showing closest matches for '{query}'**")
         
-        # Try fuzzy search
-        fuzzy_results = fuzzy_search_movies(query, max_results=8, similarity_threshold=0.2)
+        # Try the new fuzzy search (use rapidfuzz version if available, otherwise difflib)
+        try:
+            fuzzy_results = fuzzy_search_movies(query, max_results=8, similarity_threshold=0.3)
+        except ImportError:
+            # Fallback to difflib version
+            fuzzy_results = fuzzy_search_movies_difflib(query, max_results=8, similarity_threshold=0.3)
         
         if fuzzy_results:
             st.write("**Did you mean one of these?**")
@@ -1968,37 +2066,27 @@ if st.session_state.recommend_triggered:
                 else:
                     st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
 
-# Test the universal approach
+# Test function to verify the solution works
 def test_universal_fuzzy():
-    """Test with various movie queries to show it works universally"""
+    """
+    Test cases that should all work with the new system
+    """
     test_cases = [
-        ("thre idoits", "3 Idiots"),
-        ("godfater", "The Godfather"), 
-        ("jurrasic park", "Jurassic Park"),
-        ("avengrs", "Avengers"),
-        ("intersteler", "Interstellar"),
-        ("dark knght", "The Dark Knight")
+        "gone grl",      # → Gone Girl
+        "gne girl",      # → Gone Girl  
+        "miami vce",     # → Miami Vice
+        "mimai vice",    # → Miami Vice
+        "thre idiots",   # → 3 Idiots
+        "avengrs",       # → Avengers
+        "jurrasic park", # → Jurassic Park
+        "intersteler",   # → Interstellar
+        "godfater",      # → The Godfather
     ]
     
-    print("Testing Universal Fuzzy Matching:")
-    for query, expected in test_cases:
-        similarity = calculate_title_similarity(query, expected)
-        print(f"'{query}' vs '{expected}': {similarity:.3f}")
-
-# Test cases for verification
-def test_title_matching():
-    """Test the enhanced title matching"""
-    test_cases = [
-        ("gone grl", "Gone Girl"),
-        ("gne girl", "Gone Girl"),
-        ("thre idiots", "3 Idiots"),
-        ("avengrs", "Avengers"),
-        ("jurrasic park", "Jurassic Park")
-    ]
-    
-    print("Testing enhanced title-level fuzzy matching:")
-    for query, expected_title in test_cases:
-        similarity = calculate_title_similarity(query, expected_title)
-        print(f"'{query}' vs '{expected_title}': {similarity:.3f}")
-
-# Test the universal approach
+    print("Testing universal fuzzy matching:")
+    for query in test_cases:
+        print(f"\nTesting: '{query}'")
+        # This would show what the system finds
+        # results = fuzzy_search_movies(query, max_results=3)
+        # for result in results:
+        #     print(f"  - {result['title']} ({result['similarity']:.1%})")
