@@ -1846,7 +1846,7 @@ if st.session_state.favorite_movies:
                 st.session_state.favorite_movies.pop(i)
                 st.rerun()
 else:
-    st.info("👆 Search and add your 5 favorite movies to get personalized recommendations!")
+    st.info("👆 Add your first movie to get started!")
 
 # Buttons below the grid
 col1, col2 = st.columns(2)
