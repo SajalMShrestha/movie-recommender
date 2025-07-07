@@ -499,11 +499,18 @@ def initialize_feedback_csv():
             writer.writerow([
                 "numeric_session_id",
                 "session_id",
+                "user_top_5_movies",
+                "user_taste_profile",
+                "user_favorite_genres",
+                "recommendation_rank",
                 "movie_id",
                 "movie_title",
+                "movie_genres",
+                "movie_year",
+                "recommendation_score",
+                "recommendation_reason",
                 "would_watch",
                 "liked_if_seen",
-                "user_top_5_movies",
                 "timestamp"
             ])
 
@@ -525,17 +532,24 @@ def get_or_create_numeric_session_id():
 
     return numeric_id, session_id
 
-def save_feedback(numeric_id, session_id, movie_id, movie_title, would_watch, liked_if_seen, user_top_5_movies=""):
+def save_feedback(numeric_id, session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, recommendation_rank, movie_id, movie_title, movie_genres, movie_year, recommendation_score, recommendation_reason, would_watch, liked_if_seen):
     with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow([
             numeric_id,
             session_id,
+            user_top_5_movies,
+            user_taste_profile,
+            user_favorite_genres,
+            recommendation_rank,
             movie_id,
             movie_title,
+            movie_genres,
+            movie_year,
+            recommendation_score,
+            recommendation_reason,
             would_watch,
             liked_if_seen,
-            user_top_5_movies,  # Add this line
             datetime.utcnow().isoformat()
         ])
 
@@ -592,7 +606,7 @@ def get_gsheet_client():
         return None
 
 # Append a row of user feedback
-def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movie_title, would_watch, liked_if_seen, user_top_5_movies):
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, recommendation_rank, movie_id, movie_title, movie_genres, movie_year, recommendation_score, recommendation_reason, would_watch, liked_if_seen):
     try:
         sheet_name = "user_feedback"  # your sheet name
         client = get_gsheet_client()
@@ -608,11 +622,18 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movi
         row = [
             int(numeric_session_id),
             str(uuid_session_id),
+            str(user_top_5_movies),
+            str(user_taste_profile),
+            str(user_favorite_genres),
+            int(recommendation_rank),
             str(movie_id),
             str(movie_title),
+            str(movie_genres),
+            str(movie_year),
+            float(recommendation_score),
+            str(recommendation_reason),
             str(would_watch),
             str(liked_if_seen),
-            str(user_top_5_movies),
             str(timestamp)
         ]
 
@@ -1889,7 +1910,7 @@ if st.session_state.recommend_triggered:
         # 1. Create placeholders and gather all responses in a dictionary
         user_feedback = {}
 
-        for idx, (title, _) in enumerate(st.session_state.recommendations, 1):
+        for idx, (title, score) in enumerate(st.session_state.recommendations, 1):
             # Find the movie object from candidates
             movie_obj = None
             for m, _ in st.session_state.candidates.values():
@@ -1947,9 +1968,24 @@ if st.session_state.recommend_triggered:
                     horizontal=True
                 )
 
+            # Capture enhanced movie metadata
+            movie_genres = []
+            genres_list = getattr(movie_obj, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    movie_genres.append(name)
+            
             user_feedback[idx] = {
                 "movie": movie_obj.title,
                 "movie_id": movie_obj.id,
+                "movie_genres": " | ".join(movie_genres),
+                "movie_year": release_year,
+                "recommendation_rank": idx,
+                "recommendation_score": score,
                 "response": response,
                 "liked": liked,
             }
@@ -1962,20 +1998,52 @@ if st.session_state.recommend_triggered:
             success_count = 0
             total_responses = 0
             
-            # Create user's top 5 movies string
+            # Get user profile data (need to access from recommendation function)
             user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
+            
+            # Get user taste data from the recommendation process
+            favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+            favorite_genres = set()
+            
+            # Extract genres from user's selected movies
+            for movie in st.session_state.favorite_movies:
+                movie_id = movie.get("id")
+                if movie_id and movie_id in st.session_state.movie_details_cache:
+                    details = st.session_state.movie_details_cache[movie_id]
+                    genres_list = getattr(details, 'genres', [])
+                    for g in genres_list:
+                        if isinstance(g, dict):
+                            name = g.get('name', '')
+                        else:
+                            name = getattr(g, 'name', '')
+                        if name:
+                            favorite_genres.add(name)
+            
+            user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
+            user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
             
             for index, feedback in user_feedback.items():
                 if feedback["response"]:  # Only save if user provided a response
                     total_responses += 1
+                    
+                    # Generate recommendation reason based on genres
+                    recommendation_reason = f"Genre match: {feedback['movie_genres']}" if feedback['movie_genres'] else "Algorithm recommendation"
+                    
                     if record_feedback_to_sheet(
                         numeric_session_id=st.session_state.numeric_session_id,
                         uuid_session_id=st.session_state.session_id,
+                        user_top_5_movies=user_top_5,
+                        user_taste_profile=user_taste_profile,
+                        user_favorite_genres=user_favorite_genres,
+                        recommendation_rank=feedback["recommendation_rank"],
                         movie_id=feedback["movie_id"],
                         movie_title=feedback["movie"],
+                        movie_genres=feedback["movie_genres"],
+                        movie_year=feedback["movie_year"],
+                        recommendation_score=feedback["recommendation_score"],
+                        recommendation_reason=recommendation_reason,
                         would_watch=feedback["response"],
-                        liked_if_seen=feedback["liked"] or "",
-                        user_top_5_movies=user_top_5  # Add this line
+                        liked_if_seen=feedback["liked"] or ""
                     ):
                         success_count += 1
             
