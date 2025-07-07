@@ -32,8 +32,7 @@ from difflib import SequenceMatcher
 # ADD THIS IMMEDIATELY AFTER IMPORTS, BEFORE ANY OTHER CODE
 st.set_page_config(
     page_title="🎬 Screen or Skip",
-    page_icon="🎬",
-    layout="wide"
+    page_icon="🎬"
 )
 
 def generate_search_variations(query):
