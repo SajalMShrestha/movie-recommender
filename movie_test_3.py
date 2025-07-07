@@ -29,6 +29,12 @@ from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similar
 import re
 from difflib import SequenceMatcher
 
+# ADD THIS IMMEDIATELY AFTER IMPORTS, BEFORE ANY OTHER CODE
+st.set_page_config(
+    page_title="🎬 Screen or Skip",
+    page_icon="🎬",
+    layout="wide"
+)
 
 def generate_search_variations(query):
     """
@@ -1756,13 +1762,7 @@ def fetch_multiple_movie_details(movie_ids):
 
 # ============ STREAMLIT UI CODE ============
 
-st.set_page_config(
-    page_title="🎬 Screen or Skip",
-    page_icon="🎬",
-    layout="wide"
-)
-
-st.title("�� Screen or Skip")
+st.title(" Screen or Skip")
 
 # Get input
 search_query = st.text_input("search for a movie", key="movie_search")
