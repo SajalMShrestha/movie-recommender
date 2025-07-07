@@ -1764,7 +1764,7 @@ def fetch_multiple_movie_details(movie_ids):
 st.title("🎬 Screen or Skip")    # Keep emoji in the main page title
 
 # Get input
-search_query = st.text_input("search for a movie", key="movie_search")
+search_query = st.text_input("Search and add your 5 favorite movies to get personalized recommendations!", key="movie_search")
 
 # ✅ Reset search_done when user types a different movie
 if search_query != st.session_state["previous_query"]:
