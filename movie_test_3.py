@@ -31,8 +31,8 @@ from difflib import SequenceMatcher
 
 # ADD THIS IMMEDIATELY AFTER IMPORTS, BEFORE ANY OTHER CODE
 st.set_page_config(
-    page_title="🎬 Screen or Skip",
-    page_icon="🎬"
+    page_title="Screen or Skip",  # Remove emoji from page title
+    page_icon="🎬"               # Keep emoji only as favicon
 )
 
 def generate_search_variations(query):
@@ -1761,7 +1761,7 @@ def fetch_multiple_movie_details(movie_ids):
 
 # ============ STREAMLIT UI CODE ============
 
-st.title(" Screen or Skip")
+st.title("🎬 Screen or Skip")    # Keep emoji in the main page title
 
 # Get input
 search_query = st.text_input("search for a movie", key="movie_search")
