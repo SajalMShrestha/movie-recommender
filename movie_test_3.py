@@ -525,7 +525,7 @@ def get_or_create_numeric_session_id():
 
     return numeric_id, session_id
 
-def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status, liked_status):
+def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status, liked_status, user_top_5_movies=""):
     with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow([
@@ -535,6 +535,7 @@ def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status,
             movie_title,
             watched_status,
             liked_status,
+            user_top_5_movies,  # Add this line
             datetime.utcnow().isoformat()
         ])
 
