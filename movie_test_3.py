@@ -1974,7 +1974,7 @@ if st.session_state.recommend_triggered:
                         movie_title=feedback["movie"],
                         would_watch=feedback["response"],
                         liked_if_seen=feedback["liked"] or "",
-                        user_top_5_movies=user_top_5
+                        user_top_5_movies=user_top_5  # Add this line
                     ):
                         success_count += 1
             
