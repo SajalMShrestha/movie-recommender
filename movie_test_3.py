@@ -503,6 +503,7 @@ def initialize_feedback_csv():
                 "movie_title",
                 "watched_status",
                 "liked_status",
+                "user_top_5_movies",
                 "timestamp"
             ])
 
@@ -590,7 +591,7 @@ def get_gsheet_client():
         return None
 
 # Append a row of user feedback
-def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movie_title, would_watch, liked_if_seen):
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movie_title, watched_status, liked_status, user_top_5_movies):
     try:
         sheet_name = "user_feedback"  # your sheet name
         client = get_gsheet_client()
@@ -608,8 +609,9 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movi
             str(uuid_session_id),
             str(movie_id),
             str(movie_title),
-            str(would_watch),
-            str(liked_if_seen),
+            str(watched_status),
+            str(liked_status),
+            str(user_top_5_movies),  # Add user's top 5 movies
             str(timestamp)
         ]
 
@@ -1959,6 +1961,9 @@ if st.session_state.recommend_triggered:
             success_count = 0
             total_responses = 0
             
+            # Create user's top 5 movies string
+            user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
+            
             for index, feedback in user_feedback.items():
                 if feedback["response"]:  # Only save if user provided a response
                     total_responses += 1
@@ -1968,7 +1973,8 @@ if st.session_state.recommend_triggered:
                         movie_id=feedback["movie_id"],
                         movie_title=feedback["movie"],
                         would_watch=feedback["response"],
-                        liked_if_seen=feedback["liked"] or ""
+                        liked_if_seen=feedback["liked"] or "",
+                        user_top_5_movies=user_top_5
                     ):
                         success_count += 1
             
