@@ -1756,6 +1756,12 @@ def fetch_multiple_movie_details(movie_ids):
 
 # ============ STREAMLIT UI CODE ============
 
+st.set_page_config(
+    page_title="🎬 Screen or Skip",
+    page_icon="🎬",
+    layout="wide"
+)
+
 st.title("�� Screen or Skip")
 
 # Get input
