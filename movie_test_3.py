@@ -1821,10 +1821,11 @@ if search_results:
                     st.success(f"✅ Added {clean_title}")
                     st.rerun()
 
-# --- Display Favorite Movies with Posters in a Grid ---
-st.subheader("🎥 Your Selected Movies (5 max)")
-
+# --- Only show this section if user has added at least one movie ---
 if st.session_state.favorite_movies:
+    # --- Display Favorite Movies with Posters in a Grid ---
+    st.subheader("🎥 Your Selected Movies (5 max)")
+    
     cols = st.columns(5)
     for i, movie in enumerate(st.session_state.favorite_movies):
         with cols[i % 5]:
@@ -1845,36 +1846,34 @@ if st.session_state.favorite_movies:
             if st.button(f"Remove", key=f"remove_{i}"):
                 st.session_state.favorite_movies.pop(i)
                 st.rerun()
-else:
-    st.info("👆 Add your first movie to get started!")
 
-# Buttons below the grid
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("❌ Clear All"):
-        st.session_state.favorite_movies = []
-        st.session_state.recommendations = None
-        st.session_state.candidates = None
-        st.session_state.recommend_triggered = False
-        st.rerun()
+    # Buttons below the grid - only show when movies are selected
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("❌ Clear All"):
+            st.session_state.favorite_movies = []
+            st.session_state.recommendations = None
+            st.session_state.candidates = None
+            st.session_state.recommend_triggered = False
+            st.rerun()
 
-with col2:
-    # --- Get Recommendations ---
-    if st.button("🎬 Get Recommendations", type="primary"):
-        if len(st.session_state.favorite_movies) != 5:
-            st.warning("Please select exactly 5 movies to get recommendations.")
-        else:
-            with st.spinner("Finding personalized movie recommendations..."):
-                favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                try:
-                    recs, candidate_movies = recommend_movies(favorite_titles)
-                    st.session_state.recommendations = recs
-                    st.session_state.candidates = candidate_movies
-                    st.session_state.recommend_triggered = True
-                except Exception as e:
-                    st.error(f"❌ Failed to generate recommendations: {e}")
-                    import traceback
-                    st.error(traceback.format_exc())
+    with col2:
+        # --- Get Recommendations ---
+        if st.button("🎬 Get Recommendations", type="primary"):
+            if len(st.session_state.favorite_movies) != 5:
+                st.warning("Please select exactly 5 movies to get recommendations.")
+            else:
+                with st.spinner("Finding personalized movie recommendations..."):
+                    favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                    try:
+                        recs, candidate_movies = recommend_movies(favorite_titles)
+                        st.session_state.recommendations = recs
+                        st.session_state.candidates = candidate_movies
+                        st.session_state.recommend_triggered = True
+                    except Exception as e:
+                        st.error(f"❌ Failed to generate recommendations: {e}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
 # Display recommendations and feedback
 if st.session_state.recommend_triggered:
