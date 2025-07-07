@@ -501,8 +501,8 @@ def initialize_feedback_csv():
                 "session_id",
                 "movie_id",
                 "movie_title",
-                "watched_status",
-                "liked_status",
+                "would_watch",
+                "liked_if_seen",
                 "user_top_5_movies",
                 "timestamp"
             ])
@@ -525,7 +525,7 @@ def get_or_create_numeric_session_id():
 
     return numeric_id, session_id
 
-def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status, liked_status, user_top_5_movies=""):
+def save_feedback(numeric_id, session_id, movie_id, movie_title, would_watch, liked_if_seen, user_top_5_movies=""):
     with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow([
@@ -533,8 +533,8 @@ def save_feedback(numeric_id, session_id, movie_id, movie_title, watched_status,
             session_id,
             movie_id,
             movie_title,
-            watched_status,
-            liked_status,
+            would_watch,
+            liked_if_seen,
             user_top_5_movies,  # Add this line
             datetime.utcnow().isoformat()
         ])
@@ -592,7 +592,7 @@ def get_gsheet_client():
         return None
 
 # Append a row of user feedback
-def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movie_title, watched_status, liked_status, user_top_5_movies):
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movie_title, would_watch, liked_if_seen, user_top_5_movies):
     try:
         sheet_name = "user_feedback"  # your sheet name
         client = get_gsheet_client()
@@ -610,9 +610,9 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, movie_id, movi
             str(uuid_session_id),
             str(movie_id),
             str(movie_title),
-            str(watched_status),
-            str(liked_status),
-            str(user_top_5_movies),  # Add user's top 5 movies
+            str(would_watch),
+            str(liked_if_seen),
+            str(user_top_5_movies),
             str(timestamp)
         ]
 
