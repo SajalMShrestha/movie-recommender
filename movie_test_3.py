@@ -1987,15 +1987,180 @@ if st.session_state.recommend_triggered:
 def test_universal_fuzzy():
     """Test with various movie queries to show it works universally"""
     test_cases = [
+        # Original test cases
         ("thre idoits", "3 Idiots"),
         ("godfater", "The Godfather"), 
         ("jurrasic park", "Jurassic Park"),
         ("avengrs", "Avengers"),
         ("intersteler", "Interstellar"),
-        ("dark knght", "The Dark Knight")
+        ("dark knght", "The Dark Knight"),
+        
+        # Marvel Movies
+        ("iron man", "Iron Man"),
+        ("spiderman", "Spider-Man"),
+        ("spider man", "Spider-Man"),
+        ("captin america", "Captain America"),
+        ("captain amerca", "Captain America"),
+        ("black panther", "Black Panther"),
+        ("thor ragnarok", "Thor: Ragnarok"),
+        ("thor ragnarook", "Thor: Ragnarok"),
+        ("doctor strange", "Doctor Strange"),
+        ("dr strange", "Doctor Strange"),
+        
+        # DC Movies
+        ("batman begins", "Batman Begins"),
+        ("batman v superman", "Batman v Superman: Dawn of Justice"),
+        ("wonder woman", "Wonder Woman"),
+        ("aquaman", "Aquaman"),
+        ("suicide squad", "Suicide Squad"),
+        ("sucide squad", "Suicide Squad"),
+        ("justice league", "Justice League"),
+        
+        # Popular Action Movies
+        ("fast and furious", "Fast & Furious"),
+        ("fast furious", "Fast & Furious"),
+        ("john wick", "John Wick"),
+        ("mission impossible", "Mission: Impossible"),
+        ("mission imposible", "Mission: Impossible"),
+        ("terminator", "The Terminator"),
+        ("terminater", "The Terminator"),
+        ("die hard", "Die Hard"),
+        ("mad max", "Mad Max"),
+        ("transformers", "Transformers"),
+        
+        # Sci-Fi Classics
+        ("star wars", "Star Wars"),
+        ("empire strikes back", "The Empire Strikes Back"),
+        ("return jedi", "Return of the Jedi"),
+        ("star trek", "Star Trek"),
+        ("blade runner", "Blade Runner"),
+        ("matrix", "The Matrix"),
+        ("alien", "Alien"),
+        ("aliens", "Aliens"),
+        ("back to future", "Back to the Future"),
+        ("back to the futur", "Back to the Future"),
+        
+        # Horror Movies
+        ("exorcist", "The Exorcist"),
+        ("exorsist", "The Exorcist"),
+        ("halloween", "Halloween"),
+        ("friday 13th", "Friday the 13th"),
+        ("friday the 13", "Friday the 13th"),
+        ("nightmare elm street", "A Nightmare on Elm Street"),
+        ("nightmare on elm street", "A Nightmare on Elm Street"),
+        ("conjuring", "The Conjuring"),
+        ("it", "It"),
+        ("shining", "The Shining"),
+        
+        # Comedy Movies
+        ("dumb and dumber", "Dumb and Dumber"),
+        ("dumb dumber", "Dumb and Dumber"),
+        ("anchorman", "Anchorman"),
+        ("stepbrothers", "Step Brothers"),
+        ("step brothers", "Step Brothers"),
+        ("hangover", "The Hangover"),
+        ("superbad", "Superbad"),
+        ("super bad", "Superbad"),
+        ("pineapple express", "Pineapple Express"),
+        
+        # Drama/Romance
+        ("titanic", "Titanic"),
+        ("titanik", "Titanic"),
+        ("casablanca", "Casablanca"),
+        ("casa blanca", "Casablanca"),
+        ("notebook", "The Notebook"),
+        ("forrest gump", "Forrest Gump"),
+        ("forest gump", "Forrest Gump"),
+        ("shawshank redemption", "The Shawshank Redemption"),
+        ("shawshank", "The Shawshank Redemption"),
+        ("green mile", "The Green Mile"),
+        
+        # Animated Movies
+        ("toy story", "Toy Story"),
+        ("finding nemo", "Finding Nemo"),
+        ("finding memo", "Finding Nemo"),
+        ("monsters inc", "Monsters, Inc."),
+        ("monsters university", "Monsters University"),
+        ("incredibles", "The Incredibles"),
+        ("shrek", "Shrek"),
+        ("frozen", "Frozen"),
+        ("moana", "Moana"),
+        ("coco", "Coco"),
+        
+        # Classic Movies
+        ("gone with wind", "Gone with the Wind"),
+        ("gone with the wind", "Gone with the Wind"),
+        ("citizen kane", "Citizen Kane"),
+        ("citizen cane", "Citizen Kane"),
+        ("vertigo", "Vertigo"),
+        ("psycho", "Psycho"),
+        ("rear window", "Rear Window"),
+        ("north by northwest", "North by Northwest"),
+        
+        # Recent Popular Movies
+        ("parasite", "Parasite"),
+        ("joker", "Joker"),
+        ("once upon time hollywood", "Once Upon a Time in Hollywood"),
+        ("once upon a time in hollywood", "Once Upon a Time in Hollywood"),
+        ("1917", "1917"),
+        ("knives out", "Knives Out"),
+        ("knifes out", "Knives Out"),
+        ("black widow", "Black Widow"),
+        ("dune", "Dune"),
+        ("no time to die", "No Time to Die"),
+        
+        # International/Foreign Films
+        ("crouching tiger hidden dragon", "Crouching Tiger, Hidden Dragon"),
+        ("oldboy", "Oldboy"),
+        ("old boy", "Oldboy"),
+        ("spirited away", "Spirited Away"),
+        ("akira", "Akira"),
+        ("city of god", "City of God"),
+        
+        # Franchises with numbers
+        ("godfather 2", "The Godfather Part II"),
+        ("godfather ii", "The Godfather Part II"),
+        ("rocky 2", "Rocky II"),
+        ("rocky ii", "Rocky II"),
+        ("rambo", "Rambo"),
+        ("indiana jones", "Indiana Jones"),
+        ("raiders lost ark", "Raiders of the Lost Ark"),
+        ("temple doom", "Indiana Jones and the Temple of Doom"),
+        ("last crusade", "Indiana Jones and the Last Crusade"),
+        
+        # Common spelling mistakes
+        ("recieve", "Receive"),  # This would be for any movie with "receive"
+        ("seperate", "Separate"),  # This would be for any movie with "separate"
+        ("definately", "Definitely"),  # This would be for any movie with "definitely"
+        ("occured", "Occurred"),  # This would be for any movie with "occurred"
+        ("begining", "Beginning"),  # Movies with "beginning"
+        ("tommorrow", "Tomorrow"),  # Movies with "tomorrow"
+        ("neccessary", "Necessary"),  # Movies with "necessary"
+        
+        # Number variations
+        ("2001 space odyssey", "2001: A Space Odyssey"),
+        ("2001 a space odyssey", "2001: A Space Odyssey"),
+        ("twelve monkeys", "12 Monkeys"),
+        ("12 monkeys", "12 Monkeys"),
+        ("seven", "Se7en"),
+        ("se7en", "Se7en"),
+        ("8 mile", "8 Mile"),
+        ("eight mile", "8 Mile"),
+        
+        # Common abbreviations
+        ("lotr", "The Lord of the Rings"),
+        ("lord rings", "The Lord of the Rings"),
+        ("hp", "Harry Potter"),
+        ("harry potter", "Harry Potter"),
+        ("got", "Game of Thrones"),  # If it were a movie
+        ("sw", "Star Wars"),
+        ("potc", "Pirates of the Caribbean"),
+        ("pirates caribbean", "Pirates of the Caribbean")
     ]
     
     print("Testing Universal Fuzzy Matching:")
     for query, expected in test_cases:
         similarity = calculate_title_similarity(query, expected)
         print(f"'{query}' vs '{expected}': {similarity:.3f}")
+        
+    return test_cases
