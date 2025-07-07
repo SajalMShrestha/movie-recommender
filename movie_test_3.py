@@ -644,6 +644,48 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_mov
         st.error(f"❌ Error saving to Google Sheets: {str(e)}")
         return False
 
+def record_final_comments_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, final_comments):
+    """
+    Record user's final comments to Google Sheets using the same format as recommendation data
+    """
+    try:
+        sheet_name = "user_feedback"  # Same sheet as your existing feedback
+        client = get_gsheet_client()
+        if client is None:
+            st.error("❌ Could not connect to Google Sheets. Please check your credentials.")
+            return False
+
+        sheet = client.open(sheet_name).sheet1  # Use the same worksheet
+
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Create row data matching your existing headers structure
+        # Using special values to indicate this is a final comment row
+        row = [
+            int(numeric_session_id),
+            str(uuid_session_id),
+            str(user_top_5_movies),
+            str(user_taste_profile),
+            str(user_favorite_genres),
+            999,  # RecommendationRank - use 999 to indicate final comments
+            "FINAL_COMMENTS",  # MovieID
+            "Final User Comments",  # MovieTitle
+            "",  # MovieGenres - empty
+            "",  # MovieYear - empty
+            0.0,  # RecommendationScore - 0 for comments
+            final_comments,  # RecommendationReason - store comments here
+            "N/A",  # WouldWatch
+            "N/A",  # LikedIfSeen
+            str(timestamp)
+        ]
+
+        sheet.append_row(row)
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Error saving final comments to Google Sheets: {str(e)}")
+        return False
+
 nltk.download('vader_lexicon')
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
@@ -2057,6 +2099,77 @@ if st.session_state.recommend_triggered:
                     st.warning("⚠️ Please provide at least one response before submitting.")
                 else:
                     st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
+
+    # Add some spacing
+    st.markdown("---")
+    
+    # Final Comments Section
+    st.subheader("💬 Final Comments")
+    st.write("Share any additional thoughts about the recommendations or the app!")
+    
+    # Text area for comments
+    final_comments = st.text_area(
+        "Your feedback helps us improve the recommendation system:",
+        placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
+        height=100,
+        key="final_comments_text"
+    )
+    
+    # Character counter
+    if final_comments:
+        char_count = len(final_comments)
+        st.caption(f"Characters: {char_count}")
+    
+    # Submit button for final comments
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:  # Center the button
+        if st.button("📝 Submit Final Comments", type="secondary", use_container_width=True):
+            if final_comments and final_comments.strip():
+                # Get user profile data (same as in your existing feedback code)
+                user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
+                
+                # Get user taste data from the recommendation process
+                favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                favorite_genres = set()
+                
+                # Extract genres from user's selected movies (same logic as your existing code)
+                for movie in st.session_state.favorite_movies:
+                    movie_id = movie.get("id")
+                    if movie_id and movie_id in st.session_state.movie_details_cache:
+                        details = st.session_state.movie_details_cache[movie_id]
+                        genres_list = getattr(details, 'genres', [])
+                        for g in genres_list:
+                            if isinstance(g, dict):
+                                name = g.get('name', '')
+                            else:
+                                name = getattr(g, 'name', '')
+                            if name:
+                                favorite_genres.add(name)
+                
+                user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
+                user_taste_profile = "diverse"  # Default - matches your existing code
+                
+                # Save to Google Sheets
+                if record_final_comments_to_sheet(
+                    numeric_session_id=st.session_state.numeric_session_id,
+                    uuid_session_id=st.session_state.session_id,
+                    user_top_5_movies=user_top_5,
+                    user_taste_profile=user_taste_profile,
+                    user_favorite_genres=user_favorite_genres,
+                    final_comments=final_comments.strip()
+                ):
+                    st.success("✅ Thank you for your feedback! Your comments have been saved.")
+                    # Clear the text area after successful submission
+                    st.session_state.final_comments_text = ""
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save your comments. Please try again.")
+            else:
+                st.warning("⚠️ Please enter some comments before submitting.")
+    
+    # Optional: Show submission status
+    if "final_comments_submitted" not in st.session_state:
+        st.session_state.final_comments_submitted = False
 
 # Test the universal approach
 def test_universal_fuzzy():
