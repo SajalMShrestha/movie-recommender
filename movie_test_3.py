@@ -1848,6 +1848,9 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button("❌ Clear All"):
         st.session_state.favorite_movies = []
+        st.session_state.recommendations = None
+        st.session_state.candidates = None
+        st.session_state.recommend_triggered = False
         st.rerun()
 
 with col2:
