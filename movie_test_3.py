@@ -2093,8 +2093,8 @@ if st.session_state.recommend_triggered:
                             if name:
                                 favorite_genres.add(name)
                 except Exception as e:
-    st.warning(f"Error processing movie: {e}")
-    continue
+                    st.warning(f"Error processing movie: {e}")
+                    continue
             
             user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
             user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
