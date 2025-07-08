@@ -35,6 +35,53 @@ st.set_page_config(
     page_icon="🎬"               # Keep emoji only as favicon
 )
 
+# ============ GLOBAL CACHE INITIALIZATION ============
+# Initialize all required session state variables at app startup
+
+# Core app state
+if "favorite_movies" not in st.session_state:
+    st.session_state.favorite_movies = []
+if "selected_movie" not in st.session_state:
+    st.session_state.selected_movie = None
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = None
+if "candidates" not in st.session_state:
+    st.session_state.candidates = None
+if "recommend_triggered" not in st.session_state:
+    st.session_state.recommend_triggered = False
+if "favorite_movie_posters" not in st.session_state:
+    st.session_state.favorite_movie_posters = {}
+
+# Per-user caches
+if "movie_details_cache" not in st.session_state:
+    st.session_state.movie_details_cache = {}
+if "movie_credits_cache" not in st.session_state:
+    st.session_state.movie_credits_cache = {}
+if "fetch_cache" not in st.session_state:
+    st.session_state.fetch_cache = {}
+if "recommendation_cache" not in st.session_state:
+    st.session_state.recommendation_cache = {}
+if "user_profile_cache" not in st.session_state:
+    st.session_state.user_profile_cache = {}
+
+# Session ID (initialize once here)
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+# Search state
+if "search_done" not in st.session_state:
+    st.session_state["search_done"] = False
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
+
+# No file-based session storage needed - using st.session_state only
+saved_state = {}
+
+# Initialize feedback system
+initialize_feedback_csv()
+numeric_id, session_uuid = get_or_create_numeric_session_id()
+st.session_state.numeric_session_id = numeric_id
+
 def generate_search_variations(query):
     """
     Focused search variations with basic typo tolerance
@@ -369,208 +416,6 @@ def enhanced_movie_search():
                     with st.spinner("Finding personalized movie recommendations..."):
                         favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
                         try:
-                            recs, candidate_movies = recommend_movies(favorite_titles)
-                            st.session_state.recommendations = recs
-                            st.session_state.candidates = candidate_movies
-                            st.session_state.recommend_triggered = True
-                        except Exception as e:
-                            st.error(f"❌ Failed to generate recommendations: {e}")
-                            import traceback
-                            st.error(traceback.format_exc())
-
-# --- Only show this section if user has added at least one movie ---
-if st.session_state.favorite_movies:
-    # --- Display Favorite Movies with Posters in a Grid ---
-    st.subheader("🎥 Your Selected Movies (5 max)")
-    
-    cols = st.columns(5)
-    for i, movie in enumerate(st.session_state.favorite_movies):
-        with cols[i % 5]:
-            title = movie["title"]
-            year = movie.get("year", "")
-            poster = movie.get("poster_path")
-            
-            if poster:
-                poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
-                st.image(poster_url, use_column_width=True)
-            else:
-                st.write("🎬 No poster")
-            
-            st.write(f"**{title}**")
-            if year:
-                st.write(f"({year})")
-            
-            if st.button(f"Remove", key=f"remove_{i}"):
-                st.session_state.favorite_movies.pop(i)
-                st.rerun()
-
-    # Buttons below the grid - only show when movies are selected
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("❌ Clear All"):
-            st.session_state.favorite_movies = []
-            st.session_state.recommendations = None
-            st.session_state.candidates = None
-            st.session_state.recommend_triggered = False
-            st.rerun()
-
-    with col2:
-        # --- Get Recommendations ---
-        if st.button("🎬 Get Recommendations", type="primary"):
-            if len(st.session_state.favorite_movies) != 5:
-                st.warning("Please select exactly 5 movies to get recommendations.")
-            else:
-                with st.spinner("Finding personalized movie recommendations..."):
-                    favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                    try:
-                        recs, candidate_movies = recommend_movies(favorite_titles)
-                        st.session_state.recommendations = recs
-                        st.session_state.candidates = candidate_movies
-                        st.session_state.recommend_triggered = True
-                    except Exception as e:
-                        st.error(f"❌ Failed to generate recommendations: {e}")
-                        import traceback
-                        st.error(traceback.format_exc())
-
-# Display recommendations and feedback
-if st.session_state.recommend_triggered:
-    if not st.session_state.recommendations:
-        st.warning("⚠️ No recommendations could be generated. Please try different favorite movies.")
-        st.info("Tip: Make sure your selected movies have plot summaries and at least some popularity.")
-    else:
-        st.subheader("🌟 Your Top 10 Movie Recommendations")
-
-        # 1. Create placeholders and gather all responses in a dictionary
-        user_feedback = {}
-
-        for idx, (title, score) in enumerate(st.session_state.recommendations, 1):
-            # Find the movie object from candidates
-            movie_obj = None
-            for m, _ in st.session_state.candidates.values():
-                if m and getattr(m, 'title', '') == title:
-                    movie_obj = m
-                    break
-            
-            if movie_obj is None:
-                continue
-            
-            st.markdown(f"### {idx}. {movie_obj.title}")
-            
-            # Create columns for poster and details
-            col1, col2 = st.columns([1, 3])
-            
-            with col1:
-                if movie_obj.poster_path:
-                    st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}", width=150)
-                else:
-                    st.write("🎬 No poster")
-            
-            with col2:
-                # Show year
-                release_year = "N/A"
-                try:
-                    if hasattr(movie_obj, 'release_date') and movie_obj.release_date:
-                        release_year = movie_obj.release_date[:4]
-                except:
-                    pass
-                st.write(f"**Year:** {release_year}")
-                
-                # Show plot
-                overview = getattr(movie_obj, 'overview', None) or getattr(movie_obj, 'plot', None) or "No description available."
-                st.write(f"**Plot:** {overview}")
-
-            # Feedback section
-            fb_key = f"watch_{idx}"
-            liked_key = f"liked_{idx}"
-
-            response = st.radio(
-                "Would you watch this?", 
-                ["Yes", "No", "Already watched"], 
-                key=fb_key, 
-                index=None,
-                horizontal=True
-            )
-
-            liked = None
-            if response == "Already watched":
-                liked = st.radio(
-                    "Did you like it?", 
-                    ["Yes", "No"], 
-                    key=liked_key, 
-                    index=None,
-                    horizontal=True
-                )
-
-            # Capture enhanced movie metadata
-            movie_genres = []
-            genres_list = getattr(movie_obj, 'genres', [])
-            for g in genres_list:
-                if isinstance(g, dict):
-                    name = g.get('name', '')
-                else:
-                    name = getattr(g, 'name', '')
-                if name:
-                    movie_genres.append(name)
-            
-            user_feedback[idx] = {
-                "movie": movie_obj.title,
-                "movie_id": movie_obj.id,
-                "movie_genres": " | ".join(movie_genres),
-                "movie_year": release_year,
-                "recommendation_rank": idx,
-                "recommendation_score": score,
-                "response": response,
-                "liked": liked,
-            }
-            
-            st.markdown("---")
-
-        # Add some spacing after the last movie feedback
-        st.markdown("---")
-
-        # Final Comments Section
-        st.subheader("💬 Final Comments")
-        st.write("Share any additional thoughts about the recommendations or the app!")
-
-        # Text area for comments
-        final_comments = st.text_area(
-            "Your feedback helps us improve the recommendation system:",
-            placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
-            height=100,
-            key="final_comments_text"
-        )
-
-        # Character counter
-        if final_comments:
-            char_count = len(final_comments)
-            st.caption(f"Characters: {char_count}")
-
-        # Email input for saving profile
-        st.markdown("---")
-        st.subheader("📧 Email")
-        save_email = st.text_input(
-            "Enter your email to save your recommendations:",
-            placeholder="your.email@example.com",
-            key="save_profile_email"
-        )
-
-        # SINGLE SUBMIT BUTTON for everything
-        if st.button("Submit All Responses", type="primary"):
-            # Store all movie responses in Google Sheet
-            success_count = 0
-            total_responses = 0
-            
-            # Get user profile data (need to access from recommendation function)
-            user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
-            
-            # Get user taste data from the recommendation process
-            favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-            favorite_genres = set()
-            
-            # Extract genres from user's selected movies
-            for movie in st.session_state.favorite_movies:
-                movie_id = movie.get("id")
-                if movie_id and movie_id in st.session_state.movie_details_cache:
                     details = st.session_state.movie_details_cache[movie_id]
                     genres_list = getattr(details, 'genres', [])
                     for g in genres_list:
@@ -1440,53 +1285,6 @@ def get_embedding_model():
 
 # Initialize embedding model for semantic analysis
 embedding_model = get_embedding_model()
-
-# ============ GLOBAL CACHE INITIALIZATION ============
-# Initialize all required session state variables at app startup
-
-# Core app state
-if "favorite_movies" not in st.session_state:
-    st.session_state.favorite_movies = []
-if "selected_movie" not in st.session_state:
-    st.session_state.selected_movie = None
-if "recommendations" not in st.session_state:
-    st.session_state.recommendations = None
-if "candidates" not in st.session_state:
-    st.session_state.candidates = None
-if "recommend_triggered" not in st.session_state:
-    st.session_state.recommend_triggered = False
-if "favorite_movie_posters" not in st.session_state:
-    st.session_state.favorite_movie_posters = {}
-
-# Per-user caches
-if "movie_details_cache" not in st.session_state:
-    st.session_state.movie_details_cache = {}
-if "movie_credits_cache" not in st.session_state:
-    st.session_state.movie_credits_cache = {}
-if "fetch_cache" not in st.session_state:
-    st.session_state.fetch_cache = {}
-if "recommendation_cache" not in st.session_state:
-    st.session_state.recommendation_cache = {}
-if "user_profile_cache" not in st.session_state:
-    st.session_state.user_profile_cache = {}
-
-# Session ID (initialize once here)
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-
-# Search state
-if "search_done" not in st.session_state:
-    st.session_state["search_done"] = False
-if "previous_query" not in st.session_state:
-    st.session_state["previous_query"] = ""
-
-# No file-based session storage needed - using st.session_state only
-saved_state = {}
-
-# Initialize feedback system
-initialize_feedback_csv()
-numeric_id, session_uuid = get_or_create_numeric_session_id()
-st.session_state.numeric_session_id = numeric_id
 
 # Fetch and normalize trending popularity scores
 def get_trending_popularity(api_key):
