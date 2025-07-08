@@ -262,7 +262,7 @@ def suggest_corrections(query, search_results):
 def enhanced_movie_search():
     """Enhanced movie search with fuzzy matching"""
     search_query = st.text_input(
-        "search for a movie",
+        "Search  (Add your 5 favorite movies to get personalized recommendations!)",
         key="movie_search",
         value=st.session_state["previous_query"]
     )
@@ -318,9 +318,65 @@ def enhanced_movie_search():
                             "poster_path": movie.get("poster_path", ""),
                             "id": movie_id
                         })
-                        st.session_state["search_done"] = True  # ✅ Hide Top 5
+                        st.session_state["search_done"] = True
                         st.success(f"✅ Added {clean_title}")
                         st.rerun()
+    
+    # If we have few or no results, show fuzzy suggestions
+    elif search_query and len(search_query) >= 2:
+        suggest_corrections(search_query, search_results)
+
+    # --- Display Favorite Movies Section ---
+    if st.session_state.favorite_movies:
+        st.subheader("🎥 Your Selected Movies (5 max)")
+        
+        cols = st.columns(5)
+        for i, movie in enumerate(st.session_state.favorite_movies):
+            with cols[i % 5]:
+                title = movie["title"]
+                year = movie.get("year", "")
+                poster = movie.get("poster_path")
+                
+                if poster:
+                    poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
+                    st.image(poster_url, use_column_width=True)
+                else:
+                    st.write("🎬 No poster")
+                
+                st.write(f"**{title}**")
+                if year:
+                    st.write(f"({year})")
+                
+                if st.button(f"Remove", key=f"remove_movie_{i}"):  # Changed key to avoid duplicates
+                    st.session_state.favorite_movies.pop(i)
+                    st.rerun()
+
+        # Buttons below the grid
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("❌ Clear All", key="clear_all_movies"):  # Added unique key
+                st.session_state.favorite_movies = []
+                st.session_state.recommendations = None
+                st.session_state.candidates = None
+                st.session_state.recommend_triggered = False
+                st.rerun()
+
+        with col2:
+            if st.button("🎬 Get Recommendations", type="primary", key="get_recommendations"):  # Added unique key
+                if len(st.session_state.favorite_movies) != 5:
+                    st.warning("Please select exactly 5 movies to get recommendations.")
+                else:
+                    with st.spinner("Finding personalized movie recommendations..."):
+                        favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                        try:
+                            recs, candidate_movies = recommend_movies(favorite_titles)
+                            st.session_state.recommendations = recs
+                            st.session_state.candidates = candidate_movies
+                            st.session_state.recommend_triggered = True
+                        except Exception as e:
+                            st.error(f"❌ Failed to generate recommendations: {e}")
+                            import traceback
+                            st.error(traceback.format_exc())
 
 # --- Only show this section if user has added at least one movie ---
 if st.session_state.favorite_movies:
@@ -2390,512 +2446,7 @@ def fetch_multiple_movie_details(movie_ids):
 
 # ============ STREAMLIT UI CODE ============
 
-st.title("🎬 Screen or Skip")    # Keep emoji in the main page title
+st.title("🎬 Screen or Skip")
 
-# Get input
-search_query = st.text_input("Search  (Add your 5 favorite movies to get personalized recommendations!)", key="movie_search")
-
-# ✅ Reset search_done when user types a different movie
-if search_query != st.session_state["previous_query"]:
-    st.session_state["search_done"] = False
-    st.session_state["previous_query"] = search_query
-
-search_results = []
-
-# 3️⃣ Only search if user hasn't just added a movie
-if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
-    try:
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
-        response = requests.get(url, params=params)
-        data = response.json()
-        results = data.get("results", [])
-        search_results = [
-            {
-                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
-                "id": m.get("id"),
-                "poster_path": m.get("poster_path")
-            }
-            for m in results[:5]
-            if m.get("title") and m.get("id")
-        ]
-    except Exception as e:
-        st.error(f"Error searching for movies: {e}")
-
-# 4️⃣ Show Top 5 only if we have results AND no movie was just added
-if search_results:
-    st.markdown("### Top 5 Matches")
-    cols = st.columns(5)
-    for idx, movie in enumerate(search_results):
-        with cols[idx]:
-            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
-            if poster_url:
-                st.image(poster_url, use_column_width=True)
-            st.write(f"**{movie['label']}**")
-            if st.button("Add Movie", key=f"add_{idx}"):  # ✅ Simpler button text
-                clean_title = movie["label"].split(" (", 1)[0]
-                movie_id = movie["id"]
-
-                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                if len(st.session_state.favorite_movies) >= 5:
-                    st.warning("You can only add up to 5 movies.")
-                elif clean_title not in existing_titles:
-                    st.session_state.favorite_movies.append({
-                        "title": clean_title,
-                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
-                        "poster_path": movie.get("poster_path", ""),
-                        "id": movie_id
-                    })
-                    st.session_state["search_done"] = True  # ✅ Hide Top 5
-                    st.success(f"✅ Added {clean_title}")
-                    st.rerun()
-
-# --- Only show this section if user has added at least one movie ---
-if st.session_state.favorite_movies:
-    # --- Display Favorite Movies with Posters in a Grid ---
-    st.subheader("🎥 Your Selected Movies (5 max)")
-    
-    cols = st.columns(5)
-    for i, movie in enumerate(st.session_state.favorite_movies):
-        with cols[i % 5]:
-            title = movie["title"]
-            year = movie.get("year", "")
-            poster = movie.get("poster_path")
-            
-            if poster:
-                poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
-                st.image(poster_url, use_column_width=True)
-            else:
-                st.write("🎬 No poster")
-            
-            st.write(f"**{title}**")
-            if year:
-                st.write(f"({year})")
-            
-            if st.button(f"Remove", key=f"remove_{i}"):
-                st.session_state.favorite_movies.pop(i)
-                st.rerun()
-
-    # Buttons below the grid - only show when movies are selected
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("❌ Clear All"):
-            st.session_state.favorite_movies = []
-            st.session_state.recommendations = None
-            st.session_state.candidates = None
-            st.session_state.recommend_triggered = False
-            st.rerun()
-
-    with col2:
-        # --- Get Recommendations ---
-        if st.button("🎬 Get Recommendations", type="primary"):
-            if len(st.session_state.favorite_movies) != 5:
-                st.warning("Please select exactly 5 movies to get recommendations.")
-            else:
-                with st.spinner("Finding personalized movie recommendations..."):
-                    favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                    try:
-                        recs, candidate_movies = recommend_movies(favorite_titles)
-                        st.session_state.recommendations = recs
-                        st.session_state.candidates = candidate_movies
-                        st.session_state.recommend_triggered = True
-                    except Exception as e:
-                        st.error(f"❌ Failed to generate recommendations: {e}")
-                        import traceback
-                        st.error(traceback.format_exc())
-
-# Display recommendations and feedback
-if st.session_state.recommend_triggered:
-    if not st.session_state.recommendations:
-        st.warning("⚠️ No recommendations could be generated. Please try different favorite movies.")
-        st.info("Tip: Make sure your selected movies have plot summaries and at least some popularity.")
-    else:
-        st.subheader("🌟 Your Top 10 Movie Recommendations")
-
-        # 1. Create placeholders and gather all responses in a dictionary
-        user_feedback = {}
-
-        for idx, (title, score) in enumerate(st.session_state.recommendations, 1):
-            # Find the movie object from candidates
-            movie_obj = None
-            for m, _ in st.session_state.candidates.values():
-                if m and getattr(m, 'title', '') == title:
-                    movie_obj = m
-                    break
-            
-            if movie_obj is None:
-                continue
-            
-            st.markdown(f"### {idx}. {movie_obj.title}")
-            
-            # Create columns for poster and details
-            col1, col2 = st.columns([1, 3])
-            
-            with col1:
-                if movie_obj.poster_path:
-                    st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}", width=150)
-                else:
-                    st.write("🎬 No poster")
-            
-            with col2:
-                # Show year
-                release_year = "N/A"
-                try:
-                    if hasattr(movie_obj, 'release_date') and movie_obj.release_date:
-                        release_year = movie_obj.release_date[:4]
-                except:
-                    pass
-                st.write(f"**Year:** {release_year}")
-                
-                # Show plot
-                overview = getattr(movie_obj, 'overview', None) or getattr(movie_obj, 'plot', None) or "No description available."
-                st.write(f"**Plot:** {overview}")
-
-            # Feedback section
-            fb_key = f"watch_{idx}"
-            liked_key = f"liked_{idx}"
-
-            response = st.radio(
-                "Would you watch this?", 
-                ["Yes", "No", "Already watched"], 
-                key=fb_key, 
-                index=None,
-                horizontal=True
-            )
-
-            liked = None
-            if response == "Already watched":
-                liked = st.radio(
-                    "Did you like it?", 
-                    ["Yes", "No"], 
-                    key=liked_key, 
-                    index=None,
-                    horizontal=True
-                )
-
-            # Capture enhanced movie metadata
-            movie_genres = []
-            genres_list = getattr(movie_obj, 'genres', [])
-            for g in genres_list:
-                if isinstance(g, dict):
-                    name = g.get('name', '')
-                else:
-                    name = getattr(g, 'name', '')
-                if name:
-                    movie_genres.append(name)
-            
-            user_feedback[idx] = {
-                "movie": movie_obj.title,
-                "movie_id": movie_obj.id,
-                "movie_genres": " | ".join(movie_genres),
-                "movie_year": release_year,
-                "recommendation_rank": idx,
-                "recommendation_score": score,
-                "response": response,
-                "liked": liked,
-            }
-            
-            st.markdown("---")
-
-        # Add some spacing after the last movie feedback
-        st.markdown("---")
-
-        # Final Comments Section
-        st.subheader("💬 Final Comments")
-        st.write("Share any additional thoughts about the recommendations or the app!")
-
-        # Text area for comments
-        final_comments = st.text_area(
-            "Your feedback helps us improve the recommendation system:",
-            placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
-            height=100,
-            key="final_comments_text"
-        )
-
-        # Character counter
-        if final_comments:
-            char_count = len(final_comments)
-            st.caption(f"Characters: {char_count}")
-
-        # Email input for saving profile
-        st.markdown("---")
-        st.subheader("📧 Email")
-        save_email = st.text_input(
-            "Enter your email to save your recommendations:",
-            placeholder="your.email@example.com",
-            key="save_profile_email"
-        )
-
-        # SINGLE SUBMIT BUTTON for everything
-        if st.button("Submit All Responses", type="primary"):
-            # Store all movie responses in Google Sheet
-            success_count = 0
-            total_responses = 0
-            
-            # Get user profile data (need to access from recommendation function)
-            user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
-            
-            # Get user taste data from the recommendation process
-            favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-            favorite_genres = set()
-            
-            # Extract genres from user's selected movies
-            for movie in st.session_state.favorite_movies:
-                movie_id = movie.get("id")
-                if movie_id and movie_id in st.session_state.movie_details_cache:
-                    details = st.session_state.movie_details_cache[movie_id]
-                    genres_list = getattr(details, 'genres', [])
-                    for g in genres_list:
-                        if isinstance(g, dict):
-                            name = g.get('name', '')
-                        else:
-                            name = getattr(g, 'name', '')
-                        if name:
-                            favorite_genres.add(name)
-            
-            user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
-            user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
-            
-            # Process movie feedback responses
-            for index, feedback in user_feedback.items():
-                if feedback["response"]:  # Only save if user provided a response
-                    total_responses += 1
-                    
-                    # Generate recommendation reason based on genres
-                    recommendation_reason = f"Genre match: {feedback['movie_genres']}" if feedback['movie_genres'] else "Algorithm recommendation"
-                    
-                    if record_feedback_to_sheet(
-                        numeric_session_id=st.session_state.numeric_session_id,
-                        uuid_session_id=st.session_state.session_id,
-                        user_top_5_movies=user_top_5,
-                        user_taste_profile=user_taste_profile,
-                        user_favorite_genres=user_favorite_genres,
-                        recommendation_rank=feedback["recommendation_rank"],
-                        movie_id=feedback["movie_id"],
-                        movie_title=feedback["movie"],
-                        movie_genres=feedback["movie_genres"],
-                        movie_year=feedback["movie_year"],
-                        recommendation_score=feedback["recommendation_score"],
-                        recommendation_reason=recommendation_reason,
-                        would_watch=feedback["response"],
-                        liked_if_seen=feedback["liked"] or "",
-                        user_email=save_email.strip() if save_email else ""
-                    ):
-                        success_count += 1
-            
-            # Also save final comments if provided
-            comments_saved = False
-            if final_comments and final_comments.strip():
-                comments_saved = record_final_comments_to_sheet(
-                    numeric_session_id=st.session_state.numeric_session_id,
-                    uuid_session_id=st.session_state.session_id,
-                    user_top_5_movies=user_top_5,
-                    user_taste_profile=user_taste_profile,
-                    user_favorite_genres=user_favorite_genres,
-                    final_comments=final_comments.strip(),
-                    user_email=save_email.strip() if save_email else ""
-                )
-            
-            # Show combined results
-            if success_count == total_responses and total_responses > 0:
-                if comments_saved or not final_comments.strip():
-                    st.success(f"✅ All {success_count} movie responses saved successfully!")
-                    if comments_saved:
-                        st.success("✅ Your final comments were also saved!")
-                    st.balloons()
-                else:
-                    st.success(f"✅ All {success_count} movie responses saved!")
-                    st.warning("⚠️ Final comments failed to save, but movie feedback was recorded.")
-            elif success_count > 0:
-                st.warning(f"⚠️ {success_count}/{total_responses} movie responses saved. Some failed to save.")
-                if comments_saved:
-                    st.success("✅ Your final comments were saved!")
-            else:
-                if total_responses == 0:
-                    st.warning("⚠️ Please provide at least one movie response before submitting.")
-                else:
-                    st.error("❌ Failed to save any movie responses. Please check your Google Sheets setup.")
-                    if comments_saved:
-                        st.success("✅ Your final comments were saved!")
-
-# Test the universal approach
-def test_universal_fuzzy():
-    """Test with various movie queries to show it works universally"""
-    test_cases = [
-        # Original test cases
-        ("thre idoits", "3 Idiots"),
-        ("godfater", "The Godfather"), 
-        ("jurrasic park", "Jurassic Park"),
-        ("avengrs", "Avengers"),
-        ("intersteler", "Interstellar"),
-        ("dark knght", "The Dark Knight"),
-        
-        # Marvel Movies
-        ("iron man", "Iron Man"),
-        ("spiderman", "Spider-Man"),
-        ("spider man", "Spider-Man"),
-        ("captin america", "Captain America"),
-        ("captain amerca", "Captain America"),
-        ("black panther", "Black Panther"),
-        ("thor ragnarok", "Thor: Ragnarok"),
-        ("thor ragnarook", "Thor: Ragnarok"),
-        ("doctor strange", "Doctor Strange"),
-        ("dr strange", "Doctor Strange"),
-        
-        # DC Movies
-        ("batman begins", "Batman Begins"),
-        ("batman v superman", "Batman v Superman: Dawn of Justice"),
-        ("wonder woman", "Wonder Woman"),
-        ("aquaman", "Aquaman"),
-        ("suicide squad", "Suicide Squad"),
-        ("sucide squad", "Suicide Squad"),
-        ("justice league", "Justice League"),
-        
-        # Popular Action Movies
-        ("fast and furious", "Fast & Furious"),
-        ("fast furious", "Fast & Furious"),
-        ("john wick", "John Wick"),
-        ("mission impossible", "Mission: Impossible"),
-        ("mission imposible", "Mission: Impossible"),
-        ("terminator", "The Terminator"),
-        ("terminater", "The Terminator"),
-        ("die hard", "Die Hard"),
-        ("mad max", "Mad Max"),
-        ("transformers", "Transformers"),
-        
-        # Sci-Fi Classics
-        ("star wars", "Star Wars"),
-        ("empire strikes back", "The Empire Strikes Back"),
-        ("return jedi", "Return of the Jedi"),
-        ("star trek", "Star Trek"),
-        ("blade runner", "Blade Runner"),
-        ("matrix", "The Matrix"),
-        ("alien", "Alien"),
-        ("aliens", "Aliens"),
-        ("back to future", "Back to the Future"),
-        ("back to the futur", "Back to the Future"),
-        
-        # Horror Movies
-        ("exorcist", "The Exorcist"),
-        ("exorsist", "The Exorcist"),
-        ("halloween", "Halloween"),
-        ("friday 13th", "Friday the 13th"),
-        ("friday the 13", "Friday the 13th"),
-        ("nightmare elm street", "A Nightmare on Elm Street"),
-        ("nightmare on elm street", "A Nightmare on Elm Street"),
-        ("conjuring", "The Conjuring"),
-        ("it", "It"),
-        ("shining", "The Shining"),
-        
-        # Comedy Movies
-        ("dumb and dumber", "Dumb and Dumber"),
-        ("dumb dumber", "Dumb and Dumber"),
-        ("anchorman", "Anchorman"),
-        ("stepbrothers", "Step Brothers"),
-        ("step brothers", "Step Brothers"),
-        ("hangover", "The Hangover"),
-        ("superbad", "Superbad"),
-        ("super bad", "Superbad"),
-        ("pineapple express", "Pineapple Express"),
-        
-        # Drama/Romance
-        ("titanic", "Titanic"),
-        ("titanik", "Titanic"),
-        ("casablanca", "Casablanca"),
-        ("casa blanca", "Casablanca"),
-        ("notebook", "The Notebook"),
-        ("forrest gump", "Forrest Gump"),
-        ("forest gump", "Forrest Gump"),
-        ("shawshank redemption", "The Shawshank Redemption"),
-        ("shawshank", "The Shawshank Redemption"),
-        ("green mile", "The Green Mile"),
-        
-        # Animated Movies
-        ("toy story", "Toy Story"),
-        ("finding nemo", "Finding Nemo"),
-        ("finding memo", "Finding Nemo"),
-        ("monsters inc", "Monsters, Inc."),
-        ("monsters university", "Monsters University"),
-        ("incredibles", "The Incredibles"),
-        ("shrek", "Shrek"),
-        ("frozen", "Frozen"),
-        ("moana", "Moana"),
-        ("coco", "Coco"),
-        
-        # Classic Movies
-        ("gone with wind", "Gone with the Wind"),
-        ("gone with the wind", "Gone with the Wind"),
-        ("citizen kane", "Citizen Kane"),
-        ("citizen cane", "Citizen Kane"),
-        ("vertigo", "Vertigo"),
-        ("psycho", "Psycho"),
-        ("rear window", "Rear Window"),
-        ("north by northwest", "North by Northwest"),
-        
-        # Recent Popular Movies
-        ("parasite", "Parasite"),
-        ("joker", "Joker"),
-        ("once upon time hollywood", "Once Upon a Time in Hollywood"),
-        ("once upon a time in hollywood", "Once Upon a Time in Hollywood"),
-        ("1917", "1917"),
-        ("knives out", "Knives Out"),
-        ("knifes out", "Knives Out"),
-        ("black widow", "Black Widow"),
-        ("dune", "Dune"),
-        ("no time to die", "No Time to Die"),
-        
-        # International/Foreign Films
-        ("crouching tiger hidden dragon", "Crouching Tiger, Hidden Dragon"),
-        ("oldboy", "Oldboy"),
-        ("old boy", "Oldboy"),
-        ("spirited away", "Spirited Away"),
-        ("akira", "Akira"),
-        ("city of god", "City of God"),
-        
-        # Franchises with numbers
-        ("godfather 2", "The Godfather Part II"),
-        ("godfather ii", "The Godfather Part II"),
-        ("rocky 2", "Rocky II"),
-        ("rocky ii", "Rocky II"),
-        ("rambo", "Rambo"),
-        ("indiana jones", "Indiana Jones"),
-        ("raiders lost ark", "Raiders of the Lost Ark"),
-        ("temple doom", "Indiana Jones and the Temple of Doom"),
-        ("last crusade", "Indiana Jones and the Last Crusade"),
-        
-        # Common spelling mistakes
-        ("recieve", "Receive"),  # This would be for any movie with "receive"
-        ("seperate", "Separate"),  # This would be for any movie with "separate"
-        ("definately", "Definitely"),  # This would be for any movie with "definitely"
-        ("occured", "Occurred"),  # This would be for any movie with "occurred"
-        ("begining", "Beginning"),  # Movies with "beginning"
-        ("tommorrow", "Tomorrow"),  # Movies with "tomorrow"
-        ("neccessary", "Necessary"),  # Movies with "necessary"
-        
-        # Number variations
-        ("2001 space odyssey", "2001: A Space Odyssey"),
-        ("2001 a space odyssey", "2001: A Space Odyssey"),
-        ("twelve monkeys", "12 Monkeys"),
-        ("12 monkeys", "12 Monkeys"),
-        ("seven", "Se7en"),
-        ("se7en", "Se7en"),
-        ("8 mile", "8 Mile"),
-        ("eight mile", "8 Mile"),
-        
-        # Common abbreviations
-        ("lotr", "The Lord of the Rings"),
-        ("lord rings", "The Lord of the Rings"),
-        ("hp", "Harry Potter"),
-        ("harry potter", "Harry Potter"),
-        ("got", "Game of Thrones"),  # If it were a movie
-        ("sw", "Star Wars"),
-        ("potc", "Pirates of the Caribbean"),
-        ("pirates caribbean", "Pirates of the Caribbean")
-    ]
-    
-    print("Testing Universal Fuzzy Matching:")
-    for query, expected in test_cases:
-        similarity = calculate_title_similarity(query, expected)
-        print(f"'{query}' vs '{expected}': {similarity:.3f}")
-        
-    return test_cases
+# Use the enhanced movie search function
+enhanced_movie_search()
