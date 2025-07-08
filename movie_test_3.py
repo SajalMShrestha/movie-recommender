@@ -2058,9 +2058,9 @@ if st.session_state.recommend_triggered:
 
         # Email input for saving profile
         st.markdown("---")
-        st.subheader("📧 Save Your Recommendations")
+        st.subheader("📧 Email")
         save_email = st.text_input(
-            "📧 Email:",
+            "",
             placeholder="your.email@example.com",
             key="save_profile_email"
         )
