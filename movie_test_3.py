@@ -855,11 +855,67 @@ def compute_narrative_similarity(candidate_style, reference_styles):
 def fetch_similar_movie_details(m_id, fetch_cache=None):
     # Use passed cache instead of accessing st.session_state directly
     if fetch_cache is None:
-        fetch_cache = {}
+        fetch_cache = st.session_state.fetch_cache
     
-    # Use the passed cache
+    # Enhanced cache check - check both fetch_cache and movie_details_cache
     if m_id in fetch_cache:
         return m_id, fetch_cache[m_id]
+    
+    # Also check if we have it in movie_details_cache to avoid duplicate API calls
+    if m_id in st.session_state.movie_details_cache:
+        try:
+            # Use cached details to build the result
+            m_details = st.session_state.movie_details_cache[m_id]
+            m_credits = st.session_state.movie_credits_cache[m_id]
+            
+            # Process cached data (same logic as below)
+            genres = []
+            genres_list = getattr(m_details, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    genres.append(name)
+            
+            cast_list_raw = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
+            crew_list = m_credits.get('crew', []) if isinstance(m_credits, dict) else getattr(m_credits, 'crew', [])
+            
+            if hasattr(cast_list_raw, '__iter__'):
+                m_details.cast = list(cast_list_raw)[:3] if cast_list_raw else []
+            else:
+                m_details.cast = []
+            
+            directors = []
+            for c in crew_list:
+                is_director = False
+                name = ''
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    name = c.get('name', '')
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    name = getattr(c, 'name', '')
+                
+                if is_director and name:
+                    directors.append(name)
+            m_details.directors = directors
+            m_details.plot = getattr(m_details, 'overview', '') or ''
+
+            if not m_details.plot or len(m_details.plot.split()) < 5:
+                fetch_cache[m_id] = None
+                return m_id, None
+
+            m_details.narrative_style = infer_narrative_style(m_details.plot)
+            embedding = embedding_model.encode(m_details.plot, convert_to_tensor=True)
+
+            result = (m_details, embedding)
+            fetch_cache[m_id] = result
+            return m_id, result
+            
+        except Exception:
+            pass  # Fall through to normal fetch logic
     
     try:
         m_details = movie_api.details(m_id)
@@ -1130,9 +1186,9 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
         except Exception as e:
             st.warning(f"Error discovering by genre {genre_id}: {e}")
     
-    # Strategy 2: Discover by Cast (30-40 movies)
+    # Strategy 2: Discover by Cast (30-40 movies) - REDUCED FROM 5 TO 3 ACTORS
     # st.write("🎬 Discovering movies by favorite actors...")
-    for person_id in list(favorite_cast_ids)[:5]:  # Top 5 actors
+    for person_id in list(favorite_cast_ids)[:3]:  # CHANGED: Top 3 actors (was 5)
         try:
             url = f"https://api.themoviedb.org/3/discover/movie"
             params = {
@@ -1149,9 +1205,9 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
         except Exception as e:
             st.warning(f"Error discovering by cast {person_id}: {e}")
     
-    # Strategy 3: Discover by Directors (20-30 movies)
+    # Strategy 3: Discover by Directors (20-30 movies) - REDUCED FROM 3 TO 2 DIRECTORS
     # st.write("🎥 Discovering movies by favorite directors...")
-    for person_id in list(favorite_director_ids)[:3]:  # Top 3 directors
+    for person_id in list(favorite_director_ids)[:2]:  # CHANGED: Top 2 directors (was 3)
         try:
             url = f"https://api.themoviedb.org/3/discover/movie"
             params = {
@@ -1339,198 +1395,34 @@ def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years
 
 # --- Enhanced Recommendation Logic ---
 def recommend_movies(favorite_titles):
-    # Check cache first
+    import time
+    start_time = time.time()
+    
+    # Check recommendation cache first
     cache_key = "|".join(sorted(favorite_titles))
     
     if cache_key in st.session_state.recommendation_cache:
         cached_result = st.session_state.recommendation_cache[cache_key]
-        st.write(f"✅ Using cached results")
+        st.write(f"✅ Using cached recommendation results ({time.time() - start_time:.1f}s)")
         return cached_result
     
-    favorite_genres = set()
-    favorite_actors = set()
-    favorite_directors = set()
-    # New sets for IDs
-    favorite_genre_ids = set()
-    favorite_cast_ids = set()
-    favorite_director_ids = set()
-    candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
-    favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
-    favorite_embeddings = []
-    favorite_movies_info = []  # Store full movie info for clustering analysis
-
-    # Enhanced movie search with fuzzy matching
-    valid_movies_found = []
-    failed_searches = []
-
-    for title in favorite_titles:
-        try:
-            # First try exact search
-            search_result = movie_api.search(title)
-            
-            if search_result:
-                valid_movies_found.append((title, search_result[0]))
-            else:
-                # Try fuzzy search for this title
-                st.write(f"🔍 Trying fuzzy search for '{title}'...")
-                fuzzy_results = fuzzy_search_movies(title, max_results=3, similarity_threshold=0.7)
-                
-                if fuzzy_results:
-                    # Use the best fuzzy match
-                    best_match = fuzzy_results[0]
-                    st.write(f"📝 Using '{best_match['title']}' as match for '{title}' ({best_match['similarity']:.0%} similarity)")
-                    
-                    # Search for the corrected title
-                    corrected_search = movie_api.search(best_match['title'])
-                    if corrected_search:
-                        valid_movies_found.append((title, corrected_search[0]))
-                    else:
-                        failed_searches.append(title)
-                else:
-                    failed_searches.append(title)
-                    
-        except Exception as e:
-            st.warning(f"Error processing {title}: {e}")
-            failed_searches.append(title)
-
-    # Show what we found/didn't find
-    if valid_movies_found:
-        st.write(f"✅ Successfully found {len(valid_movies_found)} out of {len(favorite_titles)} movies")
-
-    if failed_searches:
-        st.warning(f"⚠️ Could not find matches for: {', '.join(failed_searches)}")
-        st.info("💡 Try using more common titles or check spelling for better results")
-
-    # If we have too few valid movies, show a helpful message
-    if len(valid_movies_found) < 3:
-        st.error("❌ Need at least 3 valid movies to generate good recommendations")
-        st.info("💡 Please add more movies or try different titles")
+    # Use cached user profile processing
+    user_profile = process_user_favorites_cached(favorite_titles)
+    if not user_profile:
         return [], {}
-
-    # Process the valid movies we found
-    for original_title, search_result in valid_movies_found:
-        try:
-            movie_id = search_result.id
-            
-            # Check per-user cache first
-            if movie_id in st.session_state.movie_details_cache:
-                details = st.session_state.movie_details_cache[movie_id]
-                credits = st.session_state.movie_credits_cache[movie_id]
-            else:
-                # Fetch and cache per user
-                details = movie_api.details(movie_id)
-                credits = movie_api.credits(movie_id)
-                st.session_state.movie_details_cache[movie_id] = details
-                st.session_state.movie_credits_cache[movie_id] = credits
-            
-            # Store movie info for clustering
-            movie_info = {
-                "title": original_title,
-                "genres": [],
-                "year": None
-            }
-            
-            # ✅ Collect genre names - Fixed attribute access
-            genres_list = getattr(details, 'genres', [])
-            for g in genres_list:
-                if isinstance(g, dict):
-                    name = g.get('name', '')
-                else:
-                    name = getattr(g, 'name', '')
-                if name:
-                    favorite_genres.add(name)
-                    movie_info["genres"].append(name)
-
-            # ✅ Collect actor and director names - Fixed attribute access
-            cast_list_raw = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
-            crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
-            
-            # Process cast names
-            # Convert to list if needed and safely slice
-            if hasattr(cast_list_raw, '__iter__'):
-                cast_list = list(cast_list_raw)[:3] if cast_list_raw else []
-            else:
-                cast_list = []
-            
-            for c in cast_list:
-                if isinstance(c, dict):
-                    name = c.get('name', '')
-                else:
-                    name = getattr(c, 'name', '')
-                if name:
-                    favorite_actors.add(name)
-
-            # Process director names
-            for c in crew_list:
-                is_director = False
-                name = ''
-                if isinstance(c, dict):
-                    is_director = c.get('job', '') == 'Director'
-                    name = c.get('name', '')
-                else:
-                    is_director = getattr(c, 'job', '') == 'Director'
-                    name = getattr(c, 'name', '')
-                
-                if is_director and name:
-                    favorite_directors.add(name)
-
-            # ✅ Collect genre IDs - Fixed attribute access
-            for g in genres_list:
-                if hasattr(g, 'id'):
-                    favorite_genre_ids.add(g.id)
-                elif isinstance(g, dict) and 'id' in g:
-                    favorite_genre_ids.add(g['id'])
-
-            # Fixed overview access
-            overview = getattr(details, 'overview', '') or ''
-            plot_moods.add(infer_mood_from_plot(overview))
-            narr_style = infer_narrative_style(overview)
-            for key in favorite_narrative_styles:
-                favorite_narrative_styles[key].append(narr_style.get(key, ""))
-            
-            # Fixed release_date access
-            release_date = getattr(details, 'release_date', None)
-            if release_date:
-                try:
-                    year = int(release_date[:4])
-                    favorite_years.append(year)
-                    movie_info["year"] = year
-                except (ValueError, TypeError):
-                    pass
-            
-            # ✅ Directly encode as torch tensor
-            emb = embedding_model.encode(overview, convert_to_tensor=True)
-            favorite_embeddings.append(emb)
-            favorite_movies_info.append(movie_info)
-            
-            # ✅ Collect top 3 cast IDs
-            for c in cast_list:
-                if isinstance(c, dict):
-                    cast_id = c.get('id', 0)
-                else:
-                    cast_id = getattr(c, 'id', 0)
-                if cast_id:
-                    favorite_cast_ids.add(cast_id)
-
-            # ✅ Collect directors' IDs  
-            for c in crew_list:
-                is_director = False
-                if isinstance(c, dict):
-                    is_director = c.get('job', '') == 'Director'
-                    person_id = c.get('id', 0)
-                else:
-                    is_director = getattr(c, 'job', '') == 'Director'
-                    person_id = getattr(c, 'id', 0)
-                
-                if is_director and person_id:
-                    favorite_director_ids.add(person_id)
-            
-            # We'll build the candidate pool after processing all favorites
-            pass
-                
-        except Exception as e:
-            st.warning(f"Error processing {title}: {e}")
-            continue
+    
+    # Extract from cached profile
+    favorite_genres = user_profile['favorite_genres']
+    favorite_actors = user_profile['favorite_actors']
+    favorite_directors = user_profile['favorite_directors']
+    favorite_genre_ids = user_profile['favorite_genre_ids']
+    favorite_cast_ids = user_profile['favorite_cast_ids']
+    favorite_director_ids = user_profile['favorite_director_ids']
+    plot_moods = user_profile['plot_moods']
+    favorite_years = user_profile['favorite_years']
+    favorite_narrative_styles = user_profile['favorite_narrative_styles']
+    favorite_embeddings = user_profile['favorite_embeddings']
+    favorite_movies_info = user_profile['favorite_movies_info']
 
     # Build custom candidate pool using multiple strategies
     candidate_movie_ids = build_custom_candidate_pool(
@@ -2338,3 +2230,228 @@ def test_universal_fuzzy():
         print(f"'{query}' vs '{expected}': {similarity:.3f}")
         
     return test_cases
+
+# ===============================
+# STEP 2: ADD USER PROFILE CACHING
+# ===============================
+def process_user_favorites_cached(favorite_titles):
+    """
+    Process user favorites with caching to avoid reprocessing same movies
+    """
+    import time
+    
+    # Create cache key
+    cache_key = "|".join(sorted(favorite_titles))
+    
+    # Check if we have cached user profile
+    if not hasattr(st.session_state, 'user_profile_cache'):
+        st.session_state.user_profile_cache = {}
+    
+    if cache_key in st.session_state.user_profile_cache:
+        st.write("✅ Using cached user profile")
+        return st.session_state.user_profile_cache[cache_key]
+    
+    # If not cached, process as normal
+    start_time = time.time()
+    
+    favorite_genres = set()
+    favorite_actors = set()
+    favorite_directors = set()
+    favorite_genre_ids = set()
+    favorite_cast_ids = set()
+    favorite_director_ids = set()
+    candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
+    favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
+    favorite_embeddings = []
+    favorite_movies_info = []
+
+    # Enhanced movie search with fuzzy matching
+    valid_movies_found = []
+    failed_searches = []
+
+    for title in favorite_titles:
+        try:
+            # First try exact search
+            search_result = movie_api.search(title)
+            
+            if search_result:
+                valid_movies_found.append((title, search_result[0]))
+            else:
+                # Try fuzzy search for this title
+                st.write(f"🔍 Trying fuzzy search for '{title}'...")
+                fuzzy_results = fuzzy_search_movies(title, max_results=3, similarity_threshold=0.7)
+                
+                if fuzzy_results:
+                    # Use the best fuzzy match
+                    best_match = fuzzy_results[0]
+                    st.write(f"📝 Using '{best_match['title']}' as match for '{title}' ({best_match['similarity']:.0%} similarity)")
+                    
+                    # Search for the corrected title
+                    corrected_search = movie_api.search(best_match['title'])
+                    if corrected_search:
+                        valid_movies_found.append((title, corrected_search[0]))
+                    else:
+                        failed_searches.append(title)
+                else:
+                    failed_searches.append(title)
+                    
+        except Exception as e:
+            st.warning(f"Error processing {title}: {e}")
+            failed_searches.append(title)
+
+    # Show what we found/didn't find
+    if valid_movies_found:
+        st.write(f"✅ Successfully found {len(valid_movies_found)} out of {len(favorite_titles)} movies")
+
+    if failed_searches:
+        st.warning(f"⚠️ Could not find matches for: {', '.join(failed_searches)}")
+        st.info("💡 Try using more common titles or check spelling for better results")
+
+    # If we have too few valid movies, show a helpful message
+    if len(valid_movies_found) < 3:
+        st.error("❌ Need at least 3 valid movies to generate good recommendations")
+        st.info("💡 Please add more movies or try different titles")
+        return None
+
+    # Process the valid movies we found
+    for original_title, search_result in valid_movies_found:
+        try:
+            movie_id = search_result.id
+            
+            # Check per-user cache first
+            if movie_id in st.session_state.movie_details_cache:
+                details = st.session_state.movie_details_cache[movie_id]
+                credits = st.session_state.movie_credits_cache[movie_id]
+            else:
+                # Fetch and cache per user
+                details = movie_api.details(movie_id)
+                credits = movie_api.credits(movie_id)
+                st.session_state.movie_details_cache[movie_id] = details
+                st.session_state.movie_credits_cache[movie_id] = credits
+            
+            # Store movie info for clustering
+            movie_info = {
+                "title": original_title,
+                "genres": [],
+                "year": None
+            }
+            
+            # ✅ Collect genre names - Fixed attribute access
+            genres_list = getattr(details, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    favorite_genres.add(name)
+                    movie_info["genres"].append(name)
+
+            # ✅ Collect actor and director names - Fixed attribute access
+            cast_list_raw = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
+            crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
+            
+            # Process cast names
+            # Convert to list if needed and safely slice
+            if hasattr(cast_list_raw, '__iter__'):
+                cast_list = list(cast_list_raw)[:3] if cast_list_raw else []
+            else:
+                cast_list = []
+            
+            for c in cast_list:
+                if isinstance(c, dict):
+                    name = c.get('name', '')
+                else:
+                    name = getattr(c, 'name', '')
+                if name:
+                    favorite_actors.add(name)
+
+            # Process director names
+            for c in crew_list:
+                is_director = False
+                name = ''
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    name = c.get('name', '')
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    name = getattr(c, 'name', '')
+                
+                if is_director and name:
+                    favorite_directors.add(name)
+
+            # ✅ Collect genre IDs - Fixed attribute access
+            for g in genres_list:
+                if hasattr(g, 'id'):
+                    favorite_genre_ids.add(g.id)
+                elif isinstance(g, dict) and 'id' in g:
+                    favorite_genre_ids.add(g['id'])
+
+            # Fixed overview access
+            overview = getattr(details, 'overview', '') or ''
+            plot_moods.add(infer_mood_from_plot(overview))
+            narr_style = infer_narrative_style(overview)
+            for key in favorite_narrative_styles:
+                favorite_narrative_styles[key].append(narr_style.get(key, ""))
+            
+            # Fixed release_date access
+            release_date = getattr(details, 'release_date', None)
+            if release_date:
+                try:
+                    year = int(release_date[:4])
+                    favorite_years.append(year)
+                    movie_info["year"] = year
+                except (ValueError, TypeError):
+                    pass
+            
+            # ✅ Directly encode as torch tensor
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+            favorite_movies_info.append(movie_info)
+            
+            # ✅ Collect top 3 cast IDs
+            for c in cast_list:
+                if isinstance(c, dict):
+                    cast_id = c.get('id', 0)
+                else:
+                    cast_id = getattr(c, 'id', 0)
+                if cast_id:
+                    favorite_cast_ids.add(cast_id)
+
+            # ✅ Collect directors' IDs  
+            for c in crew_list:
+                is_director = False
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    person_id = c.get('id', 0)
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    person_id = getattr(c, 'id', 0)
+                
+                if is_director and person_id:
+                    favorite_director_ids.add(person_id)
+                
+        except Exception as e:
+            st.warning(f"Error processing {original_title}: {e}")
+            continue
+
+    # Create profile object
+    user_profile = {
+        'favorite_genres': favorite_genres,
+        'favorite_actors': favorite_actors,
+        'favorite_directors': favorite_directors,
+        'favorite_genre_ids': favorite_genre_ids,
+        'favorite_cast_ids': favorite_cast_ids,
+        'favorite_director_ids': favorite_director_ids,
+        'plot_moods': plot_moods,
+        'favorite_years': favorite_years,
+        'favorite_narrative_styles': favorite_narrative_styles,
+        'favorite_embeddings': favorite_embeddings,
+        'favorite_movies_info': favorite_movies_info
+    }
+    
+    # Cache the profile
+    st.session_state.user_profile_cache[cache_key] = user_profile
+    st.write(f"⏱️ User profile processed and cached: {time.time() - start_time:.1f}s")
+    
+    return user_profile
