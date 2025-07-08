@@ -2181,11 +2181,14 @@ if st.session_state.recommend_triggered:
         """, unsafe_allow_html=True)
 
         # Final Comments Section
-        st.markdown('<h3 style="margin-top: -10px;">Additional Feedback</h3>', unsafe_allow_html=True)
-        
+        st.subheader("Additional Feedback")
+        st.markdown("")  # Medium spacing
+        st.write("Your insights will help me improve the app!")
+        st.markdown("")  # Medium spacing
+
         # Text area for comments
         final_comments = st.text_area(
-            "Your insights will help me improve the app!",
+            "",
             placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
             height=100,
             key="final_comments_text"
