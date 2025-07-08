@@ -805,14 +805,7 @@ mood_tone_map = {
     "classic": {"Western", "Film-Noir"}
 }
 
-immature_genres = {"Family", "Animation", "Kids"}
-
-def get_maturity_penalty(genres):
-    for g in genres:
-        genre_name = g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '')
-        if genre_name in immature_genres:
-            return 0.15
-    return 0
+# Removed: No longer penalizing family/animation movies
 
 def get_mood_score(genres, preferred_moods):
     matched_moods = set()
