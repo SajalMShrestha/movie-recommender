@@ -2167,22 +2167,27 @@ if st.session_state.recommend_triggered:
         # Add some spacing after the last movie feedback
         st.markdown("---")
 
+        # Custom CSS for better spacing
+        st.markdown("""
+        <style>
+        .element-container:has(> .stTextArea) {
+            margin-top: -15px !important;
+        }
+        .element-container:has(> .stTextInput) {
+            margin-top: -10px !important;
+        }
+        div[data-testid=\"stMarkdownContainer\"] p {
+            margin-bottom: 8px !important;
+        }
+        h3 {
+            margin-bottom: 10px !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         # Final Comments Section
         st.subheader("Additional Feedback")
-        st.markdown(
-            """
-            <style>
-            .stTextArea > div > div > textarea {
-                margin-top: -10px;
-            }
-            div[data-testid="stMarkdownContainer"] p {
-                margin-bottom: 5px;
-            }
-            </style>
-            **Your insights help us improve!**
-            """, 
-            unsafe_allow_html=True
-        )
+        st.write("**Your insights help us improve!**")
 
         # Text area for comments
         final_comments = st.text_area(
