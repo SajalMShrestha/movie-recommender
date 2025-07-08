@@ -28,7 +28,6 @@ from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 import re
 from difflib import SequenceMatcher
-from sklearn.metrics import silhouette_score, calinski_harabasz_score
 
 # ADD THIS IMMEDIATELY AFTER IMPORTS, BEFORE ANY OTHER CODE
 st.set_page_config(
@@ -1259,158 +1258,43 @@ def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_
 # NEW: Multi-cluster approach for preserving diverse taste profiles
 def identify_taste_clusters(favorite_embeddings, favorite_movies_info):
     """
-    Identify distinct taste clusters from user's favorite movies with quality optimization
+    Identify distinct taste clusters from user's favorite movies
     Returns cluster centers and movie assignments
     """
     if len(favorite_embeddings) <= 2:
+        # Too few movies to cluster meaningfully
         return None, None
     
+    # Convert embeddings to numpy array
     embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
     
-    # AUTO-DETECT OPTIMAL NUMBER OF CLUSTERS
-    best_clusters = 2
-    best_score = -1
-    max_clusters = min(4, len(favorite_embeddings) - 1)
+    # Determine optimal number of clusters (2-3 for 5 movies)
+    n_clusters = min(3, max(2, len(favorite_embeddings) // 2))
     
-    st.write("🔍 **Testing cluster configurations:**")
-    
-    for k in range(2, max_clusters + 1):
-        kmeans_test = KMeans(
-            n_clusters=k, 
-            random_state=42, 
-            n_init=20,  # More initialization attempts
-            max_iter=500,  # More iterations for convergence
-            tol=1e-6  # Tighter convergence tolerance
-        )
-        labels = kmeans_test.fit_predict(embeddings_array)
-        
-        # Check cluster quality using silhouette score
-        try:
-            score = silhouette_score(embeddings_array, labels)
-            st.write(f"   - {k} clusters: quality score = {score:.3f}")
-            
-            if score > best_score:
-                best_score = score
-                best_clusters = k
-        except:
-            # Skip if silhouette score fails
-            continue
-    
-    st.write(f"✅ **Selected {best_clusters} clusters** (quality: {best_score:.3f})")
-    
-    # FINAL CLUSTERING WITH OPTIMAL PARAMETERS
-    final_kmeans = KMeans(
-        n_clusters=best_clusters,
-        random_state=42,
-        n_init=50,  # Even more attempts for final clustering
-        max_iter=1000,
-        algorithm='elkan',  # Faster for dense data
-        tol=1e-8
-    )
-    
-    cluster_labels = final_kmeans.fit_predict(embeddings_array)
-    cluster_centers = final_kmeans.cluster_centers_
+    # Perform clustering
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(embeddings_array)
+    cluster_centers = kmeans.cluster_centers_
     
     # Convert back to torch tensors
     cluster_centers_torch = [torch.from_numpy(center) for center in cluster_centers]
     
-    # Store cluster quality for later use
-    st.session_state.cluster_quality = best_score
-    
     return cluster_centers_torch, cluster_labels
-
-def validate_cluster_quality(embeddings_array, labels, cluster_centers):
-    """Validate and report cluster quality metrics"""
-    try:
-        # Silhouette Score: -1 to 1, higher is better
-        sil_score = silhouette_score(embeddings_array, labels)
-        
-        # Calinski-Harabasz Score: higher is better (no upper bound)
-        ch_score = calinski_harabasz_score(embeddings_array, labels)
-        
-        st.write(f"📊 **Cluster Quality Metrics:**")
-        st.write(f"   - Silhouette Score: {sil_score:.3f} (higher=better, max=1.0)")
-        st.write(f"   - Separation Score: {ch_score:.1f} (higher=better)")
-        
-        # Quality interpretation
-        if sil_score > 0.5:
-            st.success("🎯 Excellent cluster separation - very distinct taste groups!")
-        elif sil_score > 0.25:
-            st.info("✅ Good cluster separation - distinct taste preferences detected")
-        else:
-            st.warning("⚠️ Moderate separation - somewhat overlapping tastes")
-            
-        return sil_score
-        
-    except Exception as e:
-        st.warning(f"Could not compute cluster quality: {e}")
-        return 0.0
-
-def analyze_taste_clusters(favorite_movies_info, cluster_labels):
-    """Analyze what each cluster represents"""
-    if cluster_labels is None:
-        return
-    
-    st.write("🎭 **Taste Cluster Analysis:**")
-    
-    for cluster_id in set(cluster_labels):
-        cluster_movies = [
-            movie for i, movie in enumerate(favorite_movies_info) 
-            if cluster_labels[i] == cluster_id
-        ]
-        
-        st.write(f"**Cluster {cluster_id + 1}:** ({len(cluster_movies)} movies)")
-        
-        # Show movies in this cluster
-        movie_titles = [movie['title'] for movie in cluster_movies]
-        st.write(f"   Movies: {', '.join(movie_titles)}")
-        
-        # Analyze genres in this cluster
-        cluster_genres = {}
-        for movie in cluster_movies:
-            for genre in movie.get('genres', []):
-                cluster_genres[genre] = cluster_genres.get(genre, 0) + 1
-        
-        if cluster_genres:
-            top_genres = sorted(cluster_genres.items(), key=lambda x: x[1], reverse=True)[:3]
-            genre_summary = ", ".join([f"{genre} ({count})" for genre, count in top_genres])
-            st.write(f"   Top Genres: {genre_summary}")
-        
-        st.write("")
 
 def compute_multi_cluster_similarity(candidate_embedding, cluster_centers):
     """
-    Compute similarity to multiple cluster centers with quality-aware weighting
-    Returns weighted similarity based on cluster quality
+    Compute similarity to multiple cluster centers
+    Returns the maximum similarity (best match to any cluster)
     """
     if cluster_centers is None:
         return 0.0
     
-    similarities = []
+    max_similarity = 0.0
     for center in cluster_centers:
-        sim = float(cos_sim(candidate_embedding, center))
-        similarities.append(sim)
+        similarity = float(cos_sim(candidate_embedding, center))
+        max_similarity = max(max_similarity, similarity)
     
-    # Get cluster quality if available
-    cluster_quality = getattr(st.session_state, 'cluster_quality', 0.3)
-    
-    # STRATEGY 1: Max similarity (for high-quality clusters)
-    max_similarity = max(similarities)
-    
-    # STRATEGY 2: Weighted combination based on cluster quality
-    if cluster_quality > 0.4:
-        # High quality clusters: trust the best match
-        return max_similarity
-    elif len(similarities) == 2:
-        # Two clusters: blend best and second-best
-        sorted_sims = sorted(similarities, reverse=True)
-        return 0.8 * sorted_sims[0] + 0.2 * sorted_sims[1]
-    else:
-        # Multiple clusters: weighted average with emphasis on top matches
-        sorted_sims = sorted(similarities, reverse=True)
-        weights = [0.6, 0.3, 0.1][:len(sorted_sims)]
-        weighted_sim = sum(w * s for w, s in zip(weights, sorted_sims))
-        return weighted_sim / sum(weights[:len(sorted_sims)])
+    return max_similarity
 
 def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years):
     """
@@ -1669,20 +1553,8 @@ def recommend_movies(favorite_titles):
     # Identify taste clusters
     cluster_centers, cluster_labels = identify_taste_clusters(favorite_embeddings, favorite_movies_info)
     
-    if cluster_centers and cluster_labels is not None:
+    if cluster_centers:
         st.write(f"🎬 Identified {len(cluster_centers)} distinct taste clusters")
-        
-        # ADD QUALITY VALIDATION AND ANALYSIS
-        embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
-        cluster_quality = validate_cluster_quality(
-            embeddings_array, 
-            cluster_labels, 
-            [c.numpy() for c in cluster_centers]
-        )
-        analyze_taste_clusters(favorite_movies_info, cluster_labels)
-        
-        # Store quality for use in similarity computation
-        st.session_state.cluster_quality = cluster_quality
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
@@ -2167,35 +2039,13 @@ if st.session_state.recommend_triggered:
         # Add some spacing after the last movie feedback
         st.markdown("---")
 
-        # Custom CSS for tighter spacing
-        st.markdown("""
-        <style>
-        .element-container:has(> .stTextArea) {
-            margin-top: -20px !important;
-        }
-        .element-container:has(> .stTextInput) {
-            margin-top: -15px !important;
-        }
-        div[data-testid="stMarkdownContainer"] p {
-            margin-bottom: 5px !important;
-            margin-top: 0px !important;
-        }
-        h3 {
-            margin-bottom: 5px !important;
-            margin-top: -30px !important;
-        }
-        .block-container {
-            padding-top: 0rem !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
         # Final Comments Section
-        st.subheader("Additional Feedback")
-        
+        st.subheader("💬 Final Comments")
+        st.write("Share any additional thoughts about the recommendations or the app!")
+
         # Text area for comments
         final_comments = st.text_area(
-            "Your insights help us improve!",
+            "Your feedback helps us improve the recommendation system:",
             placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
             height=100,
             key="final_comments_text"
@@ -2243,8 +2093,8 @@ if st.session_state.recommend_triggered:
                             if name:
                                 favorite_genres.add(name)
                 except Exception as e:
-                    st.warning(f"Error processing movie: {e}")
-                    continue
+    st.warning(f"Error processing movie: {e}")
+    continue
             
             user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
             user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
