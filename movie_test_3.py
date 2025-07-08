@@ -2168,9 +2168,11 @@ if st.session_state.recommend_triggered:
         st.markdown("---")
 
         # Final Comments Section
+        st.subheader("Share any additional feedback about the recommendations or the app. Your insights help us improve!")
+
         # Text area for comments
         final_comments = st.text_area(
-            "Share any additional feedback about the recommendations or the app. Your insights help us improve!",
+            "",
             placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
             height=100,
             key="final_comments_text"
