@@ -2034,9 +2034,29 @@ if st.session_state.recommend_triggered:
             
             st.markdown("---")
 
-        # 2. Submit button at the end only
+        # Add some spacing after the last movie feedback
+        st.markdown("---")
+
+        # Final Comments Section
+        st.subheader("💬 Final Comments")
+        st.write("Share any additional thoughts about the recommendations or the app!")
+
+        # Text area for comments
+        final_comments = st.text_area(
+            "Your feedback helps us improve the recommendation system:",
+            placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
+            height=100,
+            key="final_comments_text"
+        )
+
+        # Character counter
+        if final_comments:
+            char_count = len(final_comments)
+            st.caption(f"Characters: {char_count}")
+
+        # SINGLE SUBMIT BUTTON for everything
         if st.button("Submit All Responses", type="primary"):
-            # Store all responses in Google Sheet
+            # Store all movie responses in Google Sheet
             success_count = 0
             total_responses = 0
             
@@ -2064,6 +2084,7 @@ if st.session_state.recommend_triggered:
             user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
             user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
             
+            # Process movie feedback responses
             for index, feedback in user_feedback.items():
                 if feedback["response"]:  # Only save if user provided a response
                     total_responses += 1
@@ -2089,87 +2110,39 @@ if st.session_state.recommend_triggered:
                     ):
                         success_count += 1
             
-            if success_count == total_responses and total_responses > 0:
-                st.success(f"✅ All {success_count} responses saved successfully!")
-                st.balloons()
-            elif success_count > 0:
-                st.warning(f"⚠️ {success_count}/{total_responses} responses saved. Some failed to save.")
-            else:
-                if total_responses == 0:
-                    st.warning("⚠️ Please provide at least one response before submitting.")
-                else:
-                    st.error("❌ Failed to save any responses. Please check your Google Sheets setup.")
-
-    # Add some spacing
-    st.markdown("---")
-    
-    # Final Comments Section
-    st.subheader("💬 Final Comments")
-    st.write("Share any additional thoughts about the recommendations or the app!")
-    
-    # Text area for comments
-    final_comments = st.text_area(
-        "Your feedback helps us improve the recommendation system:",
-        placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
-        height=100,
-        key="final_comments_text"
-    )
-    
-    # Character counter
-    if final_comments:
-        char_count = len(final_comments)
-        st.caption(f"Characters: {char_count}")
-    
-    # Submit button for final comments
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:  # Center the button
-        if st.button("📝 Submit Final Comments", type="secondary", use_container_width=True):
+            # Also save final comments if provided
+            comments_saved = False
             if final_comments and final_comments.strip():
-                # Get user profile data (same as in your existing feedback code)
-                user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
-                
-                # Get user taste data from the recommendation process
-                favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
-                favorite_genres = set()
-                
-                # Extract genres from user's selected movies (same logic as your existing code)
-                for movie in st.session_state.favorite_movies:
-                    movie_id = movie.get("id")
-                    if movie_id and movie_id in st.session_state.movie_details_cache:
-                        details = st.session_state.movie_details_cache[movie_id]
-                        genres_list = getattr(details, 'genres', [])
-                        for g in genres_list:
-                            if isinstance(g, dict):
-                                name = g.get('name', '')
-                            else:
-                                name = getattr(g, 'name', '')
-                            if name:
-                                favorite_genres.add(name)
-                
-                user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
-                user_taste_profile = "diverse"  # Default - matches your existing code
-                
-                # Save to Google Sheets
-                if record_final_comments_to_sheet(
+                comments_saved = record_final_comments_to_sheet(
                     numeric_session_id=st.session_state.numeric_session_id,
                     uuid_session_id=st.session_state.session_id,
                     user_top_5_movies=user_top_5,
                     user_taste_profile=user_taste_profile,
                     user_favorite_genres=user_favorite_genres,
                     final_comments=final_comments.strip()
-                ):
-                    st.success("✅ Thank you for your feedback! Your comments have been saved.")
-                    # Clear the text area after successful submission
-                    st.session_state.final_comments_text = ""
-                    st.rerun()
+                )
+            
+            # Show combined results
+            if success_count == total_responses and total_responses > 0:
+                if comments_saved or not final_comments.strip():
+                    st.success(f"✅ All {success_count} movie responses saved successfully!")
+                    if comments_saved:
+                        st.success("✅ Your final comments were also saved!")
+                    st.balloons()
                 else:
-                    st.error("❌ Failed to save your comments. Please try again.")
+                    st.success(f"✅ All {success_count} movie responses saved!")
+                    st.warning("⚠️ Final comments failed to save, but movie feedback was recorded.")
+            elif success_count > 0:
+                st.warning(f"⚠️ {success_count}/{total_responses} movie responses saved. Some failed to save.")
+                if comments_saved:
+                    st.success("✅ Your final comments were saved!")
             else:
-                st.warning("⚠️ Please enter some comments before submitting.")
-    
-    # Optional: Show submission status
-    if "final_comments_submitted" not in st.session_state:
-        st.session_state.final_comments_submitted = False
+                if total_responses == 0:
+                    st.warning("⚠️ Please provide at least one movie response before submitting.")
+                else:
+                    st.error("❌ Failed to save any movie responses. Please check your Google Sheets setup.")
+                    if comments_saved:
+                        st.success("✅ Your final comments were saved!")
 
 # Test the universal approach
 def test_universal_fuzzy():
