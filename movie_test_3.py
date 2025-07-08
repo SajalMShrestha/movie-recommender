@@ -2169,7 +2169,20 @@ if st.session_state.recommend_triggered:
 
         # Final Comments Section
         st.subheader("Additional Feedback")
-        st.write("**Your insights help us improve!**")
+        st.markdown(
+            """
+            <style>
+            .stTextArea > div > div > textarea {
+                margin-top: -10px;
+            }
+            div[data-testid="stMarkdownContainer"] p {
+                margin-bottom: 5px;
+            }
+            </style>
+            **Your insights help us improve!**
+            """, 
+            unsafe_allow_html=True
+        )
 
         # Text area for comments
         final_comments = st.text_area(
