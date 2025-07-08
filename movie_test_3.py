@@ -2192,11 +2192,10 @@ if st.session_state.recommend_triggered:
 
         # Final Comments Section
         st.subheader("Additional Feedback")
-        st.markdown("Your insights help us improve!")
-
+        
         # Text area for comments
         final_comments = st.text_area(
-            "",
+            "Your insights help us improve!",
             placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
             height=100,
             key="final_comments_text"
@@ -2210,9 +2209,8 @@ if st.session_state.recommend_triggered:
         # Email input for saving profile
         st.markdown("---")
         st.subheader("📧 Email")
-        st.markdown("Enter your email to save your recommendations:")
         save_email = st.text_input(
-            "",
+            "Enter your email to save your recommendations:",
             placeholder="your.email@example.com",
             key="save_profile_email"
         )
