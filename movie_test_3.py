@@ -1385,9 +1385,9 @@ def recommend_movies(favorite_titles):
             st.warning(f"Error processing {title}: {e}")
             failed_searches.append(title)
 
-    # Show what we found/didn't find
-    if valid_movies_found:
-        st.write(f"✅ Successfully found {len(valid_movies_found)} out of {len(favorite_titles)} movies")
+    # Show what we found/didn't find - Hidden success message
+    # if valid_movies_found:
+    #     st.write(f"✅ Successfully found {len(valid_movies_found)} out of {len(favorite_titles)} movies")
 
     if failed_searches:
         st.warning(f"⚠️ Could not find matches for: {', '.join(failed_searches)}")
@@ -2287,6 +2287,7 @@ def test_universal_fuzzy():
         ("spirited away", "Spirited Away"),
         ("akira", "Akira"),
         ("city of god", "City of God"),
+        ("Pirates of the Caribbean", "Pirates of the Caribean"),
         
         # Franchises with numbers
         ("godfather 2", "The Godfather Part II"),
