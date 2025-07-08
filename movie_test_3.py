@@ -2172,17 +2172,17 @@ if st.session_state.recommend_triggered:
         st.markdown("""
         <style>
         .feedback-section h3 {
-            margin-bottom: 6px !important;
+            margin-bottom: 2px !important;
         }
         .feedback-section p {
-            margin-top: 6px !important;
-            margin-bottom: 6px !important;
+            margin-top: 2px !important;
+            margin-bottom: 2px !important;
         }
         .feedback-section .stTextArea {
-            margin-top: 6px !important;
+            margin-top: 2px !important;
         }
         </style>
-        <div class=\"feedback-section\">
+        <div class=\"feedback-section\"> 
         """, unsafe_allow_html=True)
         
         st.subheader("Additional Feedback")
