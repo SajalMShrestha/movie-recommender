@@ -2168,19 +2168,23 @@ if st.session_state.recommend_triggered:
         # Add some spacing after the last movie feedback
         st.markdown("---")
 
-        # Minimal CSS - only for feedback section spacing
+        # Final Comments Section with custom spacing
         st.markdown("""
         <style>
-        .feedback-spacing h3 {
-            margin-bottom: 10px !important;
+        .feedback-section h3 {
+            margin-bottom: 6px !important;
         }
-        .feedback-spacing .stTextArea {
-            margin-top: -5px !important;
+        .feedback-section p {
+            margin-top: 6px !important;
+            margin-bottom: 6px !important;
+        }
+        .feedback-section .stTextArea {
+            margin-top: 6px !important;
         }
         </style>
+        <div class=\"feedback-section\">
         """, unsafe_allow_html=True)
-
-        # Final Comments Section
+        
         st.subheader("Additional Feedback")
         st.write("Your insights will help me improve the app!")
 
@@ -2191,6 +2195,8 @@ if st.session_state.recommend_triggered:
             height=100,
             key="final_comments_text"
         )
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
         # Character counter
         if final_comments:
