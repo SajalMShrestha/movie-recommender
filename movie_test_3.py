@@ -2196,7 +2196,7 @@ if st.session_state.recommend_triggered:
         
         # Text area for comments
         final_comments = st.text_area(
-            "Your insights will help improve the app!",
+            "Your insights will help me improve the app!",
             placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
             height=100,
             key="final_comments_text"
