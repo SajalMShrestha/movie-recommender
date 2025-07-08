@@ -2182,9 +2182,7 @@ if st.session_state.recommend_triggered:
 
         # Final Comments Section
         st.subheader("Additional Feedback")
-        st.markdown("")  # Medium spacing
         st.write("Your insights will help me improve the app!")
-        st.markdown("")  # Medium spacing
 
         # Text area for comments
         final_comments = st.text_area(
