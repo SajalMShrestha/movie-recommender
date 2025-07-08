@@ -606,7 +606,7 @@ def get_gsheet_client():
         return None
 
 # Append a row of user feedback
-def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, recommendation_rank, movie_id, movie_title, movie_genres, movie_year, recommendation_score, recommendation_reason, would_watch, liked_if_seen):
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, recommendation_rank, movie_id, movie_title, movie_genres, movie_year, recommendation_score, recommendation_reason, would_watch, liked_if_seen, user_email=""):
     try:
         sheet_name = "user_feedback"  # your sheet name
         client = get_gsheet_client()
@@ -634,6 +634,7 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_mov
             str(recommendation_reason),
             str(would_watch),
             str(liked_if_seen),
+            str(user_email),
             str(timestamp)
         ]
 
@@ -644,7 +645,7 @@ def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_mov
         st.error(f"❌ Error saving to Google Sheets: {str(e)}")
         return False
 
-def record_final_comments_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, final_comments):
+def record_final_comments_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, final_comments, user_email=""):
     """
     Record user's final comments to Google Sheets using the same format as recommendation data
     """
@@ -676,6 +677,7 @@ def record_final_comments_to_sheet(numeric_session_id, uuid_session_id, user_top
             final_comments,  # RecommendationReason - store comments here
             "N/A",  # WouldWatch
             "N/A",  # LikedIfSeen
+            str(user_email),  # UserEmail
             str(timestamp)
         ]
 
@@ -2054,6 +2056,15 @@ if st.session_state.recommend_triggered:
             char_count = len(final_comments)
             st.caption(f"Characters: {char_count}")
 
+        # Email input for saving profile
+        st.markdown("---")
+        st.subheader("📧 Save Your Recommendations")
+        save_email = st.text_input(
+            "Please enter email to save your recommendations (optional):",
+            placeholder="your.email@example.com",
+            key="save_profile_email"
+        )
+
         # SINGLE SUBMIT BUTTON for everything
         if st.button("Submit All Responses", type="primary"):
             # Store all movie responses in Google Sheet
@@ -2106,7 +2117,8 @@ if st.session_state.recommend_triggered:
                         recommendation_score=feedback["recommendation_score"],
                         recommendation_reason=recommendation_reason,
                         would_watch=feedback["response"],
-                        liked_if_seen=feedback["liked"] or ""
+                        liked_if_seen=feedback["liked"] or "",
+                        user_email=save_email.strip() if save_email else ""
                     ):
                         success_count += 1
             
@@ -2119,7 +2131,8 @@ if st.session_state.recommend_triggered:
                     user_top_5_movies=user_top_5,
                     user_taste_profile=user_taste_profile,
                     user_favorite_genres=user_favorite_genres,
-                    final_comments=final_comments.strip()
+                    final_comments=final_comments.strip(),
+                    user_email=save_email.strip() if save_email else ""
                 )
             
             # Show combined results
