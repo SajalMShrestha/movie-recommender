@@ -2182,15 +2182,10 @@ if st.session_state.recommend_triggered:
         }
         h3 {
             margin-bottom: 5px !important;
-            margin-top: -50px !important;
+            margin-top: -30px !important;
         }
         .block-container {
             padding-top: 0rem !important;
-        }
-        /* Remove space before Additional Feedback section */
-        hr {
-            margin-top: -20px !important;
-            margin-bottom: -10px !important;
         }
         </style>
         """, unsafe_allow_html=True)
