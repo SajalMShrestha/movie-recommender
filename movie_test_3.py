@@ -415,19 +415,18 @@ def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1
     # ADD THIS LINE:
     debug_franchise_keys(recommendations, candidates)
     
-    try:
-    movie_id = search_result.id
+    # Get all scored movies sorted by score for backfill
+    all_scored_movies = []
+    recommendation_dict = {title: score for title, score in recommendations}
     
-    # Check per-user cache first
-    if movie_id in st.session_state.movie_details_cache:
-        details = st.session_state.movie_details_cache[movie_id]
-        credits = st.session_state.movie_credits_cache[movie_id]
-    else:
-        # Fetch and cache per user
-        details = movie_api.details(movie_id)
-        credits = movie_api.credits(movie_id)
-        st.session_state.movie_details_cache[movie_id] = details
-        st.session_state.movie_credits_cache[movie_id] = credits
+    # Add all candidate movies with their scores (if they were in recommendations)
+    for movie_obj, embedding in candidates.values():
+        if movie_obj:
+            movie_title = getattr(movie_obj, 'title', '')
+            if movie_title in recommendation_dict:
+                score = recommendation_dict[movie_title]
+                all_scored_movies.append((movie_title, score, movie_obj))
+    
     # For movies not in original recommendations, we need to get them from the full candidate pool
     # Add more movies beyond the original top 10 to ensure we can fill 10 slots
     additional_movies = []
@@ -2081,17 +2080,20 @@ if st.session_state.recommend_triggered:
             
             # Extract genres from user's selected movies
             for movie in st.session_state.favorite_movies:
-                movie_id = movie.get("id")
-                if movie_id and movie_id in st.session_state.movie_details_cache:
-                    details = st.session_state.movie_details_cache[movie_id]
-                    genres_list = getattr(details, 'genres', [])
-                    for g in genres_list:
-                        if isinstance(g, dict):
-                            name = g.get('name', '')
-                        else:
-                            name = getattr(g, 'name', '')
-                        if name:
-                            favorite_genres.add(name)
+                try:
+                    movie_id = movie.get("id")
+                    if movie_id and movie_id in st.session_state.movie_details_cache:
+                        details = st.session_state.movie_details_cache[movie_id]
+                        genres_list = getattr(details, 'genres', [])
+                        for g in genres_list:
+                            if isinstance(g, dict):
+                                name = g.get('name', '')
+                            else:
+                                name = getattr(g, 'name', '')
+                            if name:
+                                favorite_genres.add(name)
+                except Exception:
+                    continue
             
             user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
             user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
