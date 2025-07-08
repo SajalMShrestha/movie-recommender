@@ -915,6 +915,12 @@ def process_user_favorites_cached(favorite_titles):
         try:
             movie_id = search_result.id
             
+            # Initialize caches if they don't exist
+            if "movie_details_cache" not in st.session_state:
+                st.session_state.movie_details_cache = {}
+            if "movie_credits_cache" not in st.session_state:
+                st.session_state.movie_credits_cache = {}
+
             # Check per-user cache first
             if movie_id in st.session_state.movie_details_cache:
                 details = st.session_state.movie_details_cache[movie_id]
@@ -1461,6 +1467,8 @@ if "fetch_cache" not in st.session_state:
     st.session_state.fetch_cache = {}
 if "recommendation_cache" not in st.session_state:
     st.session_state.recommendation_cache = {}
+if "user_profile_cache" not in st.session_state:
+    st.session_state.user_profile_cache = {}
 
 # Session ID (initialize once here)
 if "session_id" not in st.session_state:
@@ -1585,6 +1593,12 @@ def fetch_similar_movie_details(m_id, fetch_cache=None):
     # Enhanced cache check - check both fetch_cache and movie_details_cache
     if m_id in fetch_cache:
         return m_id, fetch_cache[m_id]
+    
+    # Initialize caches if they don't exist (for threading safety)
+    if "movie_details_cache" not in st.session_state:
+        st.session_state.movie_details_cache = {}
+    if "movie_credits_cache" not in st.session_state:
+        st.session_state.movie_credits_cache = {}
     
     # Also check if we have it in movie_details_cache to avoid duplicate API calls
     if m_id in st.session_state.movie_details_cache:
