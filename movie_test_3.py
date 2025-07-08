@@ -2041,12 +2041,12 @@ if st.session_state.recommend_triggered:
 
         # Final Comments Section
         st.subheader("💬 Final Comments")
-        st.write("Share any additional thoughts about the recommendations or the app!")
+        st.write("Share any additional thoughts about the recommendations!")
 
         # Text area for comments
         final_comments = st.text_area(
-            "Your feedback helps us improve the recommendation system:",
-            placeholder="Did the recommendations match your taste? Any movies you were surprised to see? Suggestions for improvement?",
+            "Your feedback helps me improve the recommendation system:",
+            placeholder="Did the recommendations match your taste? Any movies you were surprised to see?",
             height=100,
             key="final_comments_text"
         )
