@@ -1632,14 +1632,15 @@ def recommend_movies(favorite_titles):
             cast_dir = cast_names | director_names
             score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors) / max(len(favorite_actors),1))
             
-            # Fixed release_date access
+            # Fixed release_date access - reduced bias toward latest movies
             try:
                 release_date = getattr(m, 'release_date', None)
                 if release_date:
                     year_diff = datetime.now().year - int(release_date[:4])
-                    if year_diff<=2: score += recommendation_weights['release_year']
-                    elif year_diff<=5: score += recommendation_weights['release_year']*0.66
-                    elif year_diff<=15: score += recommendation_weights['release_year']*0.33
+                    if year_diff<=2: score += recommendation_weights['release_year']*0.6   # 60% boost for 2023-2025
+                    elif year_diff<=5: score += recommendation_weights['release_year']*0.4  # 40% boost for 2020-2022
+                    elif year_diff<=10: score += recommendation_weights['release_year']*0.25 # 25% boost for 2015-2019
+                    elif year_diff<=20: score += recommendation_weights['release_year']*0.1  # 10% boost for 2005-2014
             except (ValueError, TypeError, AttributeError):
                 pass
             
