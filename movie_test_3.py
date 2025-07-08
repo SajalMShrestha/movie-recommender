@@ -2162,7 +2162,8 @@ if st.session_state.recommend_triggered:
                 "liked": liked,
             }
             
-            st.markdown("---")
+            # Add some spacing after the last movie feedback
+            st.markdown('<hr style="margin-top: 10px; margin-bottom: 10px;">', unsafe_allow_html=True)
 
         # Add some spacing after the last movie feedback
         st.markdown("---")
@@ -2191,7 +2192,7 @@ if st.session_state.recommend_triggered:
         """, unsafe_allow_html=True)
 
         # Final Comments Section
-        st.subheader("Additional Feedback")
+        st.markdown('<h3 style="margin-top: -10px;">Additional Feedback</h3>', unsafe_allow_html=True)
         
         # Text area for comments
         final_comments = st.text_area(
