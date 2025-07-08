@@ -412,8 +412,7 @@ def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1
     if not recommendations:
         return recommendations
     
-    # ADD THIS LINE:
-    debug_franchise_keys(recommendations, candidates)
+    # debug_franchise_keys(recommendations, candidates)  # Hidden
     
     # Get all scored movies sorted by score for backfill
     all_scored_movies = []
@@ -474,17 +473,17 @@ def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1
             if len(final_recommendations) >= 10:
                 break
     
-    # Debug output
-    st.write(f"🎬 Franchise limiting: {len(recommendations)} → {len(final_recommendations)} recommendations")
+    # Debug output - Hidden
+    # st.write(f"🎬 Franchise limiting: {len(recommendations)} → {len(final_recommendations)} recommendations")
     
-    # Show franchise detection results
-    for franchise, movies in franchise_debug.items():
-        if len(movies) > 1:
-            st.write(f"🎭 Franchise detected: {len(movies)} movies")
-            for movie in movies:
-                kept = movie in [t for t, s in final_recommendations]
-                status = "✅ Kept" if kept else "❌ Removed"
-                st.write(f"  - {movie} {status}")
+    # Show franchise detection results - Hidden
+    # for franchise, movies in franchise_debug.items():
+    #     if len(movies) > 1:
+    #         st.write(f"🎭 Franchise detected: {len(movies)} movies")
+    #         for movie in movies:
+    #             kept = movie in [t for t, s in final_recommendations]
+    #             status = "✅ Kept" if kept else "❌ Removed"
+    #             st.write(f"  - {movie} {status}")
     
     return final_recommendations[:10]
 
@@ -1534,20 +1533,20 @@ def recommend_movies(favorite_titles):
         tmdb.api_key
     )
 
-    st.write(f"✅ Custom candidate pool size: {len(candidate_movie_ids)} movies")
+    # st.write(f"✅ Custom candidate pool size: {len(candidate_movie_ids)} movies")  # Hidden
 
     # Limit to first 150 candidates
     candidate_movie_ids = list(candidate_movie_ids)[:150]
 
     # Analyze taste diversity
     diversity_metrics = analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years)
-    st.write(f"🎯 Taste profile: {diversity_metrics['taste_profile']}")
+    # st.write(f"🎯 Taste profile: {diversity_metrics['taste_profile']}")  # Hidden
     
     # Identify taste clusters
     cluster_centers, cluster_labels = identify_taste_clusters(favorite_embeddings, favorite_movies_info)
     
-    if cluster_centers:
-        st.write(f"🎬 Identified {len(cluster_centers)} distinct taste clusters")
+    # if cluster_centers:
+    #     st.write(f"🎬 Identified {len(cluster_centers)} distinct taste clusters")  # Hidden
 
     # Add trending movies to candidate set
     trending_scores = get_trending_popularity(tmdb.api_key)
@@ -1746,8 +1745,8 @@ def recommend_movies(favorite_titles):
             st.warning(f"Error scoring movie {getattr(movie_obj, 'title', 'Unknown')}: {e}")
             continue
 
-    st.write(f"✅ Candidate movies count: {len(candidate_movies)}")
-    st.write(f"✅ Valid scored movies: {len(scored)}")
+    # st.write(f"✅ Candidate movies count: {len(candidate_movies)}")  # Hidden
+    # st.write(f"✅ Valid scored movies: {len(scored)}")  # Hidden
 
     scored.sort(key=lambda x:x[1], reverse=True)
     
