@@ -2168,25 +2168,14 @@ if st.session_state.recommend_triggered:
         # Add some spacing after the last movie feedback
         st.markdown("---")
 
-        # Custom CSS for tighter spacing
+        # Minimal CSS - only for feedback section spacing
         st.markdown("""
         <style>
-        .element-container:has(> .stTextArea) {
-            margin-top: -20px !important;
+        .feedback-spacing h3 {
+            margin-bottom: 10px !important;
         }
-        .element-container:has(> .stTextInput) {
-            margin-top: -15px !important;
-        }
-        div[data-testid="stMarkdownContainer"] p {
-            margin-bottom: 5px !important;
-            margin-top: 0px !important;
-        }
-        h3 {
-            margin-bottom: 5px !important;
-            margin-top: -30px !important;
-        }
-        .block-container {
-            padding-top: 0rem !important;
+        .feedback-spacing .stTextArea {
+            margin-top: -5px !important;
         }
         </style>
         """, unsafe_allow_html=True)
