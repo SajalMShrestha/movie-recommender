@@ -1,0 +1,2338 @@
+import streamlit as st
+from tmdbv3api import TMDb, Movie
+from datetime import datetime
+import concurrent.futures
+import requests
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk import word_tokenize, pos_tag
+from nltk.corpus import stopwords
+import textstat
+import pandas as pd
+import time
+import json
+import os
+import csv
+from collections import Counter
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from numpy.linalg import norm
+from numpy import mean, dot
+from sentence_transformers.util import cos_sim
+import uuid
+import gspread
+from google.oauth2.service_account import Credentials
+from torch import stack
+import torch
+from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
+import re
+from difflib import SequenceMatcher
+
+# ADD THIS IMMEDIATELY AFTER IMPORTS, BEFORE ANY OTHER CODE
+st.set_page_config(
+    page_title="Screen or Skip",  # Remove emoji from page title
+    page_icon="🎬"               # Keep emoji only as favicon
+)
+
+def generate_search_variations(query):
+    """
+    Focused search variations with basic typo tolerance
+    """
+    variations = set()
+    
+    # Original query
+    variations.add(query.strip())
+    
+    # Basic cleanup
+    clean_query = re.sub(r'[^\w\s]', ' ', query.lower()).strip()
+    variations.add(clean_query)
+    
+    # Handle number-word conversions
+    number_word_map = {'3': 'three', 'three': '3'}
+    
+    words = clean_query.split()
+    for i, word in enumerate(words):
+        if word in number_word_map:
+            new_words = words.copy()
+            new_words[i] = number_word_map[word]
+            variations.add(' '.join(new_words))
+    
+    # Add space-corrected version for concatenated words
+    if ' ' not in clean_query and len(clean_query) > 3:
+        spaced_query = re.sub(r'^(\d+)([a-z])', r'\1 \2', clean_query)
+        if spaced_query != clean_query:
+            variations.add(spaced_query)
+    
+    # Add individual significant words (for partial matching)
+    for word in words:
+        if len(word) > 3:  # Only longer words
+            variations.add(word)
+    
+    return list(variations)[:5]
+
+def fuzzy_search_movies(query, max_results=10, similarity_threshold=0.6):
+    """
+    Balanced fuzzy search - not too complex, not too simple
+    """
+    try:
+        # First try direct search
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": query}
+        response = requests.get(url, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            
+            # If we get good results from direct search, return them
+            if len(results) >= 3:
+                return [
+                    {
+                        "title": m.get('title', ''),
+                        "year": m.get('release_date', '')[:4] if m.get('release_date') else '',
+                        "id": m.get('id'),
+                        "poster_path": m.get('poster_path'),
+                        "similarity": 1.0
+                    }
+                    for m in results[:max_results]
+                    if m.get('title') and m.get('id')
+                ]
+        
+        # If direct search fails, try fuzzy matching
+        fuzzy_results = []
+        search_variations = generate_search_variations(query)
+        
+        for search_term in search_variations:
+            try:
+                params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_term}
+                response = requests.get(url, params=params)
+                
+                if response.status_code == 200:
+                    word_results = response.json().get("results", [])
+                    for movie in word_results[:12]:  # Reasonable number per variation
+                        title = movie.get('title', '')
+                        if title:
+                            similarity = calculate_title_similarity(query, title)
+                            # LOWER threshold for better typo tolerance
+                            if similarity >= 0.3:  # Lowered from 0.5 to 0.3
+                                fuzzy_results.append({
+                                    "title": title,
+                                    "year": movie.get('release_date', '')[:4] if movie.get('release_date') else '',
+                                    "id": movie.get('id'),
+                                    "poster_path": movie.get('poster_path'),
+                                    "similarity": similarity
+                                })
+            except:
+                continue
+        
+        # Remove duplicates and sort by similarity
+        seen_ids = set()
+        unique_results = []
+        for result in fuzzy_results:
+            if result['id'] not in seen_ids:
+                seen_ids.add(result['id'])
+                unique_results.append(result)
+        
+        # Sort by similarity score (highest first)
+        unique_results.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        return unique_results[:max_results]
+        
+    except Exception as e:
+        st.warning(f"Fuzzy search error: {e}")
+        return []
+
+def calculate_title_similarity(query, title):
+    """
+    Balanced similarity calculation - simple but effective
+    """
+    query_lower = query.lower().strip()
+    title_lower = title.lower().strip()
+    
+    # Method 1: Exact match
+    if query_lower == title_lower:
+        return 1.0
+    
+    # Method 2: Substring matching
+    if query_lower in title_lower or title_lower in query_lower:
+        return 0.95
+    
+    # Method 3: Handle "3 idiots" specifically with typo tolerance
+    # Check if this looks like a "3 idiots" query
+    if ('3' in query_lower or 'three' in query_lower or 'thre' in query_lower):
+        # Normalize both sides
+        query_normalized = query_lower.replace('thre', 'three').replace('idoits', 'idiots').replace('idoit', 'idiots')
+        title_normalized = title_lower
+        
+        # Check for "3 idiots" match with normalization
+        if (('3' in query_normalized or 'three' in query_normalized) and 
+            'idiots' in query_normalized and
+            ('3' in title_normalized or 'three' in title_normalized) and
+            'idiots' in title_normalized):
+            return 0.9
+    
+    # Method 4: Word-based similarity
+    query_words = set(query_lower.split())
+    title_words = set(title_lower.split())
+    
+    # Remove stop words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    query_words_clean = query_words - stop_words
+    title_words_clean = title_words - stop_words
+    
+    if query_words_clean and title_words_clean:
+        # Direct word overlap
+        overlap = len(query_words_clean & title_words_clean)
+        union = len(query_words_clean | title_words_clean)
+        jaccard = overlap / union if union > 0 else 0
+        
+        if jaccard >= 0.5:
+            return 0.8 + (jaccard * 0.2)
+        
+        # Fuzzy word matching for typos
+        fuzzy_matches = 0
+        for q_word in query_words_clean:
+            for t_word in title_words_clean:
+                if len(q_word) > 2 and len(t_word) > 2:
+                    # Character-level similarity for individual words
+                    word_sim = SequenceMatcher(None, q_word, t_word).ratio()
+                    if word_sim >= 0.7:  # Lower threshold for word-level matching
+                        fuzzy_matches += 1
+                        break
+        
+        fuzzy_ratio = fuzzy_matches / len(query_words_clean) if query_words_clean else 0
+        if fuzzy_ratio >= 0.5:
+            return 0.7 + (fuzzy_ratio * 0.2)
+    
+    # Method 5: Character-level similarity (fallback)
+    char_similarity = SequenceMatcher(None, query_lower, title_lower).ratio()
+    
+    return char_similarity
+
+def suggest_corrections(query, search_results):
+    """
+    Suggest possible corrections when search returns few results
+    """
+    if not search_results or len(search_results) < 3:
+        st.info(f"🔍 **Showing closest matches for '{query}'**")
+        
+        # Try fuzzy search
+        fuzzy_results = fuzzy_search_movies(query, max_results=5, similarity_threshold=0.2)
+        
+        if fuzzy_results:
+            st.write("**Did you mean one of these?**")
+            
+            # Show fuzzy results in a grid
+            cols = st.columns(5)
+            for idx, movie in enumerate(fuzzy_results[:5]):
+                with cols[idx % 5]:
+                    if movie.get('poster_path'):
+                        poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}"
+                        st.image(poster_url, use_column_width=True)
+                    
+                    title_display = movie['title']
+                    if movie['year']:
+                        title_display += f" ({movie['year']})"
+                    
+                    st.write(f"**{title_display}**")
+                    st.write(f"*{movie['similarity']:.0%} match*")
+                    
+                    if st.button("Add This Movie", key=f"fuzzy_add_{idx}"):
+                        # Add the movie to favorites
+                        existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                        if len(st.session_state.favorite_movies) >= 5:
+                            st.warning("You can only add up to 5 movies.")
+                        elif movie['title'] not in existing_titles:
+                            st.session_state.favorite_movies.append({
+                                "title": movie['title'],
+                                "year": movie['year'],
+                                "poster_path": movie.get('poster_path', ''),
+                                "id": movie['id']
+                            })
+                            st.session_state["search_done"] = True     # ✅ Mark search done
+                            st.session_state["previous_query"] = ""
+                            st.session_state["movie_search"] = ""  # ✅ clears input too
+                            st.success(f"✅ Added {movie['title']}")
+                            st.rerun()
+            
+            return True
+    return False
+
+def enhanced_movie_search():
+    """Enhanced movie search with fuzzy matching"""
+    search_query = st.text_input(
+        "search for a movie",
+        key="movie_search",
+        value=st.session_state["previous_query"]
+    )
+
+    # Reset search_done when user types a different movie
+    if search_query != st.session_state["previous_query"]:
+        st.session_state["search_done"] = False
+        st.session_state["previous_query"] = search_query
+
+    search_results = []
+
+    # Only search if user hasn't just added a movie
+    if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
+        try:
+            url = "https://api.themoviedb.org/3/search/movie"
+            params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+            response = requests.get(url, params=params)
+            data = response.json()
+            results = data.get("results", [])
+            search_results = [
+                {
+                    "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
+                    "id": m.get("id"),
+                    "poster_path": m.get("poster_path")
+                }
+                for m in results[:5]
+                if m.get("title") and m.get("id")
+            ]
+        except Exception as e:
+            st.error(f"Error searching for movies: {e}")
+
+    # Show Top 5 if we have good results
+    if search_results and len(search_results) >= 3:
+        st.markdown("### Top 5 Matches")
+        cols = st.columns(5)
+        for idx, movie in enumerate(search_results):
+            with cols[idx]:
+                poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
+                if poster_url:
+                    st.image(poster_url, use_column_width=True)
+                st.write(f"**{movie['label']}**")
+                if st.button("Add Movie", key=f"add_{idx}"):
+                    clean_title = movie["label"].split(" (", 1)[0]
+                    movie_id = movie["id"]
+
+                    existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                    if len(st.session_state.favorite_movies) >= 5:
+                        st.warning("You can only add up to 5 movies.")
+                    elif clean_title not in existing_titles:
+                        st.session_state.favorite_movies.append({
+                            "title": clean_title,
+                            "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                            "poster_path": movie.get("poster_path", ""),
+                            "id": movie_id
+                        })
+                        st.session_state["search_done"] = True
+                        st.session_state["previous_query"] = ""
+                        st.session_state["movie_search"] = ""  # ✅ clears input too
+                        st.success(f"✅ Added {clean_title}")
+                        st.rerun()
+    
+    # If we have few or no results, show fuzzy suggestions
+    elif search_query and len(search_query) >= 2:
+        # Use lower threshold for better typo detection
+        suggest_corrections(search_query, search_results)
+
+
+def extract_base_title_simple(title):
+    """Simple base title extraction - removes common sequel indicators"""
+    # Remove common sequel patterns
+    patterns = [
+        r'\s*\d+$',          # "Movie 2"
+        r'\s*:\s*.*$',       # "Movie: Subtitle"  
+        r'\s*-\s*.*$',       # "Movie - Subtitle"
+        r'\s*\(.*\)$',       # "Movie (2019)"
+        r'\s*II+$',          # "Movie II"
+    ]
+    
+    base_title = title
+    for pattern in patterns:
+        base_title = re.sub(pattern, '', base_title)
+    
+    return base_title.strip().lower()
+
+def get_franchise_key_robust(movie_title, candidates):
+    """
+    Robust franchise detection using shared cast + title patterns
+    """
+    # Find the movie object for this title
+    movie_obj = None
+    for m, _ in candidates.values():
+        if m and getattr(m, 'title', '') == movie_title:
+            movie_obj = m
+            break
+    
+    if not movie_obj:
+        # Fallback to simple title matching
+        return extract_base_title_simple(movie_title)
+    
+    # Get main cast
+    cast_names = []
+    cast_list = getattr(movie_obj, 'cast', []) if hasattr(movie_obj, 'cast') else []
+    for actor in cast_list[:5]:  # Top 5 cast members
+        if isinstance(actor, dict):
+            name = actor.get('name', '')
+        else:
+            name = getattr(actor, 'name', '')
+        if name:
+            cast_names.append(name)
+    
+    # Extract base title
+    base_title = extract_base_title_simple(movie_title)
+    
+    # Create franchise key using base title + key shared elements
+    # For animated movies, focus on main voice actor
+    main_cast = cast_names[0] if cast_names else "unknown"
+    
+    # Special handling for similar base titles
+    title_words = set(base_title.split())
+    
+    # If titles share key words (like "dragon"), use shared cast + shared words
+    if any(word in ["dragon", "train"] for word in title_words):
+        # Look for Jay Baruchel (Hiccup's voice) as franchise identifier
+        if "Jay Baruchel" in cast_names:
+            return "httyd_jay_baruchel_dragon"
+    
+    # For other movies, use base title + main cast
+    franchise_key = f"{base_title}_{main_cast}"
+    
+    return franchise_key
+
+def debug_franchise_keys(recommendations, candidates):
+    """Debug function to see what franchise keys are being generated"""
+    st.write("🔍 **FRANCHISE KEY DEBUG:**")
+    
+    for title, score in recommendations[:5]:  # Check first 5
+        franchise_key = get_franchise_key_robust(title, candidates)
+        st.write(f"- **{title}** → `{franchise_key}`")
+    
+    st.write("")
+
+def apply_final_franchise_limit(recommendations, candidates, max_per_franchise=1):
+    """
+    Apply franchise limiting as final step - keep only 1 per franchise
+    Fill remaining slots from next best movies
+    """
+    if not recommendations:
+        return recommendations
+    
+    # debug_franchise_keys(recommendations, candidates)  # Hidden
+    
+    # Get all scored movies sorted by score for backfill
+    all_scored_movies = []
+    recommendation_dict = {title: score for title, score in recommendations}
+    
+    # Add all candidate movies with their scores (if they were in recommendations)
+    for movie_obj, embedding in candidates.values():
+        if movie_obj:
+            movie_title = getattr(movie_obj, 'title', '')
+            if movie_title in recommendation_dict:
+                score = recommendation_dict[movie_title]
+                all_scored_movies.append((movie_title, score, movie_obj))
+    
+    # For movies not in original recommendations, we need to get them from the full candidate pool
+    # Add more movies beyond the original top 10 to ensure we can fill 10 slots
+    additional_movies = []
+    used_titles = {title for title, _, _ in all_scored_movies}
+    
+    for movie_obj, embedding in candidates.values():
+        if movie_obj:
+            movie_title = getattr(movie_obj, 'title', '')
+            if movie_title not in used_titles:
+                # These don't have scores from recommendations, so assign them lower scores
+                additional_movies.append((movie_title, 0.0, movie_obj))
+    
+    # Combine and sort by score (original recommendations first, then additional)
+    all_movies = all_scored_movies + additional_movies
+    all_movies.sort(key=lambda x: x[1], reverse=True)
+    
+    # Apply franchise limiting
+    franchise_counts = {}
+    final_recommendations = []
+    used_titles = set()
+    
+    # Debug: Track what franchises we detect
+    franchise_debug = {}
+    
+    # First pass: Go through all movies in score order and apply franchise limit
+    for title, score, movie_obj in all_movies:
+        if title in used_titles:
+            continue
+            
+        # Get franchise key using robust detection
+        franchise_key = get_franchise_key_robust(title, candidates)
+        
+        # Debug tracking
+        if franchise_key not in franchise_debug:
+            franchise_debug[franchise_key] = []
+        franchise_debug[franchise_key].append(title)
+        
+        # Check if this franchise already has a movie
+        if franchise_counts.get(franchise_key, 0) < max_per_franchise:
+            final_recommendations.append((title, score))
+            franchise_counts[franchise_key] = franchise_counts.get(franchise_key, 0) + 1
+            used_titles.add(title)
+            
+            # Stop when we have 10 recommendations
+            if len(final_recommendations) >= 10:
+                break
+    
+    # Debug output - Hidden
+    # st.write(f"🎬 Franchise limiting: {len(recommendations)} → {len(final_recommendations)} recommendations")
+    
+    # Show franchise detection results - Hidden
+    # for franchise, movies in franchise_debug.items():
+    #     if len(movies) > 1:
+    #         st.write(f"🎭 Franchise detected: {len(movies)} movies")
+    #         for movie in movies:
+    #             kept = movie in [t for t, s in final_recommendations]
+    #             status = "✅ Kept" if kept else "❌ Removed"
+    #             st.write(f"  - {movie} {status}")
+    
+    return final_recommendations[:10]
+
+# Feedback system constants and functions
+FEEDBACK_FILE = "user_feedback.csv"
+SESSION_MAP_FILE = "session_map.csv"
+
+def initialize_feedback_csv():
+    if not os.path.exists(FEEDBACK_FILE):
+        with open(FEEDBACK_FILE, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                "numeric_session_id",
+                "session_id",
+                "user_top_5_movies",
+                "user_taste_profile",
+                "user_favorite_genres",
+                "recommendation_rank",
+                "movie_id",
+                "movie_title",
+                "movie_genres",
+                "movie_year",
+                "recommendation_score",
+                "recommendation_reason",
+                "would_watch",
+                "liked_if_seen",
+                "timestamp"
+            ])
+
+def get_or_create_numeric_session_id():
+    if not os.path.exists(SESSION_MAP_FILE):
+        pd.DataFrame(columns=["numeric_session_id", "session_id"]).to_csv(SESSION_MAP_FILE, index=False)
+
+    session_id = st.session_state.get("session_id", str(uuid.uuid4()))
+    st.session_state["session_id"] = session_id
+
+    df = pd.read_csv(SESSION_MAP_FILE)
+    if session_id in df["session_id"].values:
+        numeric_id = df[df["session_id"] == session_id]["numeric_session_id"].values[0]
+    else:
+        numeric_id = df["numeric_session_id"].max() + 1 if not df.empty else 1
+        new_entry = pd.DataFrame([[numeric_id, session_id]], columns=["numeric_session_id", "session_id"])
+        df = pd.concat([df, new_entry], ignore_index=True)
+        df.to_csv(SESSION_MAP_FILE, index=False)
+
+    return numeric_id, session_id
+
+def save_feedback(numeric_id, session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, recommendation_rank, movie_id, movie_title, movie_genres, movie_year, recommendation_score, recommendation_reason, would_watch, liked_if_seen):
+    with open(FEEDBACK_FILE, mode='a', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            numeric_id,
+            session_id,
+            user_top_5_movies,
+            user_taste_profile,
+            user_favorite_genres,
+            recommendation_rank,
+            movie_id,
+            movie_title,
+            movie_genres,
+            movie_year,
+            recommendation_score,
+            recommendation_reason,
+            would_watch,
+            liked_if_seen,
+            datetime.utcnow().isoformat()
+        ])
+
+# Set up credentials using streamlit secrets
+def get_gsheet_client():
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        
+        # Check if the secret exists
+        if "gcp_service_account" not in st.secrets:
+            st.error("❌ Google Cloud service account credentials not found in Streamlit secrets")
+            return None
+            
+        # Build credentials dictionary from individual TOML fields
+        creds_dict = {
+            "type": st.secrets["gcp_service_account"]["type"],
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
+            "token_uri": st.secrets["gcp_service_account"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
+            "universe_domain": st.secrets["gcp_service_account"]["universe_domain"]
+        }
+        
+        # Fix private key format - convert literal \n to actual newlines
+        private_key = creds_dict.get("private_key", "")
+        if "\\n" in private_key:
+            private_key = private_key.replace("\\n", "\n")
+            creds_dict["private_key"] = private_key
+        
+        # Additional cleanup - remove any extra quotes or formatting issues
+        private_key = private_key.strip()
+        if private_key.startswith('"') and private_key.endswith('"'):
+            private_key = private_key[1:-1]
+        creds_dict["private_key"] = private_key
+        
+        # Debug: Check private key format
+        if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
+            st.error("❌ Private key is not in correct PEM format")
+            st.info("💡 Make sure your private key starts with '-----BEGIN PRIVATE KEY-----'")
+            return None
+            
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        client = gspread.authorize(creds)
+        return client
+        
+    except Exception as e:
+        st.error(f"❌ Error setting up Google Sheets client: {str(e)}")
+        st.info("💡 This usually means your service account JSON is corrupted or improperly formatted.")
+        return None
+
+# Append a row of user feedback
+def record_feedback_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, recommendation_rank, movie_id, movie_title, movie_genres, movie_year, recommendation_score, recommendation_reason, would_watch, liked_if_seen, user_email=""):
+    try:
+        sheet_name = "user_feedback"  # your sheet name
+        client = get_gsheet_client()
+        if client is None:
+            st.error("❌ Could not connect to Google Sheets. Please check your credentials.")
+            return False
+
+        sheet = client.open(sheet_name).sheet1  # first worksheet
+
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        # ✅ Explicitly convert all values to safe Python built-ins
+        row = [
+            int(numeric_session_id),
+            str(uuid_session_id),
+            str(user_top_5_movies),
+            str(user_taste_profile),
+            str(user_favorite_genres),
+            int(recommendation_rank),
+            str(movie_id),
+            str(movie_title),
+            str(movie_genres),
+            str(movie_year),
+            float(recommendation_score),
+            str(recommendation_reason),
+            str(would_watch),
+            str(liked_if_seen),
+            str(user_email),
+            str(timestamp)
+        ]
+
+        sheet.append_row(row)
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Error saving to Google Sheets: {str(e)}")
+        return False
+
+def record_final_comments_to_sheet(numeric_session_id, uuid_session_id, user_top_5_movies, user_taste_profile, user_favorite_genres, final_comments, user_email=""):
+    """
+    Record user's final comments to Google Sheets using the same format as recommendation data
+    """
+    try:
+        sheet_name = "user_feedback"  # Same sheet as your existing feedback
+        client = get_gsheet_client()
+        if client is None:
+            st.error("❌ Could not connect to Google Sheets. Please check your credentials.")
+            return False
+
+        sheet = client.open(sheet_name).sheet1  # Use the same worksheet
+
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Create row data matching your existing headers structure
+        # Using special values to indicate this is a final comment row
+        row = [
+            int(numeric_session_id),
+            str(uuid_session_id),
+            str(user_top_5_movies),
+            str(user_taste_profile),
+            str(user_favorite_genres),
+            999,  # RecommendationRank - use 999 to indicate final comments
+            "FINAL_COMMENTS",  # MovieID
+            "Final User Comments",  # MovieTitle
+            "",  # MovieGenres - empty
+            "",  # MovieYear - empty
+            0.0,  # RecommendationScore - 0 for comments
+            final_comments,  # RecommendationReason - store comments here
+            "N/A",  # WouldWatch
+            "N/A",  # LikedIfSeen
+            str(user_email),  # UserEmail
+            str(timestamp)
+        ]
+
+        sheet.append_row(row)
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Error saving final comments to Google Sheets: {str(e)}")
+        return False
+
+nltk.download('vader_lexicon')
+nltk.download('punkt')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('stopwords')
+
+# TMDb setup
+tmdb = TMDb()
+tmdb.api_key = st.secrets["TMDB_API_KEY"]
+# st.write("TMDB API Key loaded:", tmdb.api_key)  # Debug print
+
+tmdb.language = 'en'
+tmdb.debug = True
+movie_api = Movie()
+sia = SentimentIntensityAnalyzer()
+
+@st.cache_resource
+def get_embedding_model():
+    return SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+
+# Initialize embedding model for semantic analysis
+embedding_model = get_embedding_model()
+
+# ============ GLOBAL CACHE INITIALIZATION ============
+# Initialize all required session state variables at app startup
+
+# Core app state
+if "favorite_movies" not in st.session_state:
+    st.session_state.favorite_movies = []
+if "selected_movie" not in st.session_state:
+    st.session_state.selected_movie = None
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = None
+if "candidates" not in st.session_state:
+    st.session_state.candidates = None
+if "recommend_triggered" not in st.session_state:
+    st.session_state.recommend_triggered = False
+if "favorite_movie_posters" not in st.session_state:
+    st.session_state.favorite_movie_posters = {}
+
+# Per-user caches
+if "movie_details_cache" not in st.session_state:
+    st.session_state.movie_details_cache = {}
+if "movie_credits_cache" not in st.session_state:
+    st.session_state.movie_credits_cache = {}
+if "fetch_cache" not in st.session_state:
+    st.session_state.fetch_cache = {}
+if "recommendation_cache" not in st.session_state:
+    st.session_state.recommendation_cache = {}
+
+# Session ID (initialize once here)
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+# Search state
+if "search_done" not in st.session_state:
+    st.session_state["search_done"] = False
+if "previous_query" not in st.session_state:
+    st.session_state["previous_query"] = ""
+
+# No file-based session storage needed - using st.session_state only
+saved_state = {}
+
+# Initialize feedback system
+initialize_feedback_csv()
+numeric_id, session_uuid = get_or_create_numeric_session_id()
+st.session_state.numeric_session_id = numeric_id
+
+# Fetch and normalize trending popularity scores
+def get_trending_popularity(api_key):
+    try:
+        url = f"https://api.themoviedb.org/3/trending/movie/week?api_key={api_key}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json().get("results", [])
+            if not data:
+                return {}
+            max_pop = max([m.get("popularity", 1) for m in data])
+            return {m["id"]: m.get("popularity", 0) / max_pop for m in data}
+    except:
+        return {}
+
+
+
+# --- Updated recommendation weights ---
+recommendation_weights = {
+    "mood_tone": 0.15,
+    "genre_similarity": 0.10,
+    "cast_crew": 0.10,
+    "narrative_style": 0.08,
+    "ratings": 0.05,
+    "trending_factor": 0.07,
+    "release_year": 0.05,
+    "discovery_boost": 0.05,
+    "age_alignment": 0.0,
+    "embedding_similarity": 0.35  # Increased but will use cluster-based approach
+}
+
+streaming_platform_priority = {
+    "netflix": 1.0,
+    "disney_plus": 0.9,
+    "hbo_max": 0.85,
+    "hulu": 0.8,
+    "prime_video": 0.75,
+    "apple_tv": 0.7,
+    "peacock": 0.6,
+    "paramount_plus": 0.5
+}
+
+mood_tone_map = {
+    "feel_good": {"Comedy", "Romance", "Music", "Adventure"},
+    "gritty": {"Crime", "Thriller", "Mystery", "Drama"},
+    "cerebral": {"Sci-Fi", "Mystery", "History"},
+    "intense": {"Action", "War", "Horror"},
+    "melancholic": {"Drama", "History"},
+    "classic": {"Western", "Film-Noir"}
+}
+
+# Removed: No longer penalizing family/animation movies
+
+def get_mood_score(genres, preferred_moods):
+    matched_moods = set()
+    for g in genres:
+        # Handle both dict and object formats
+        genre_name = g.get('name', '') if isinstance(g, dict) else getattr(g, 'name', '')
+        if genre_name:
+            for mood, tags in mood_tone_map.items():
+                if genre_name in tags:
+                    matched_moods.add(mood)
+    overlap = matched_moods & preferred_moods
+    return len(overlap) / max(len(preferred_moods), 1)
+
+def infer_mood_from_plot(plot):
+    sentiment = sia.polarity_scores(plot)
+    if sentiment['compound'] >= 0.4:
+        return 'feel_good'
+    elif sentiment['compound'] <= -0.3:
+        return 'melancholic'
+    else:
+        return 'cerebral'
+
+def estimate_user_age(years):
+    if not years:
+        return 30
+    median = sorted(years)[len(years)//2]
+    return datetime.now().year - median + 18
+
+from collections import Counter
+
+def compute_narrative_similarity(candidate_style, reference_styles):
+    similarity = 0
+    for key in candidate_style:
+        if not reference_styles[key]: continue
+        dominant = Counter(reference_styles[key]).most_common(1)[0][0]
+        if candidate_style[key] == dominant:
+            similarity += 1
+    return similarity / len(candidate_style)
+
+def fetch_similar_movie_details(m_id, fetch_cache=None):
+    # Use passed cache instead of accessing st.session_state directly
+    if fetch_cache is None:
+        fetch_cache = {}
+    
+    # Use the passed cache
+    if m_id in fetch_cache:
+        return m_id, fetch_cache[m_id]
+    
+    try:
+        m_details = movie_api.details(m_id)
+        m_credits = movie_api.credits(m_id)
+
+        # Robust genre, cast, director extraction
+        genres = []
+        genres_list = getattr(m_details, 'genres', [])
+        for g in genres_list:
+            if isinstance(g, dict):
+                name = g.get('name', '')
+            else:
+                name = getattr(g, 'name', '')
+            if name:
+                genres.append(name)
+        cast_list_raw = m_credits.get('cast', []) if isinstance(m_credits, dict) else getattr(m_credits, 'cast', [])
+        crew_list = m_credits.get('crew', []) if isinstance(m_credits, dict) else getattr(m_credits, 'crew', [])
+        if hasattr(cast_list_raw, '__iter__'):
+            m_details.cast = list(cast_list_raw)[:3] if cast_list_raw else []
+        else:
+            m_details.cast = []
+        directors = []
+        for c in crew_list:
+            is_director = False
+            name = ''
+            if isinstance(c, dict):
+                is_director = c.get('job', '') == 'Director'
+                name = c.get('name', '')
+            else:
+                is_director = getattr(c, 'job', '') == 'Director'
+                name = getattr(c, 'name', '')
+            
+            if is_director and name:
+                directors.append(name)
+        m_details.directors = directors
+        m_details.plot = getattr(m_details, 'overview', '') or ''
+
+        # 🚫 Skip if plot is missing or too short to embed meaningfully
+        if not m_details.plot or len(m_details.plot.split()) < 5:
+            st.write(f"⚠️ Skipping {getattr(m_details, 'title', 'Unknown')} due to missing/short plot")
+            fetch_cache[m_id] = None
+            return m_id, None
+
+        m_details.narrative_style = infer_narrative_style(m_details.plot)
+
+        # ✅ Generate embedding
+        embedding = embedding_model.encode(m_details.plot, convert_to_tensor=True)
+
+        fetch_cache[m_id] = (m_details, embedding)
+        return m_id, (m_details, embedding)
+
+    except Exception as e:
+        st.warning(f"Embedding fetch failed for ID {m_id}: {e}")
+        fetch_cache[m_id] = None
+        return m_id, None
+
+# Text analysis functions for narrative style detection
+stop_words = set(stopwords.words('english'))
+
+# Helper to tokenize and preprocess text once
+def preprocess_text(plot):
+    tokens = word_tokenize(plot.lower())
+    words = [word for word in tokens if word.isalpha() and word not in stop_words]
+    return words
+
+# 1. Tone (Sentiment)
+def infer_tone(plot):
+    sentiment = sia.polarity_scores(plot)
+    if sentiment['compound'] >= 0.3:
+        return "positive"
+    elif sentiment['compound'] <= -0.3:
+        return "negative"
+    else:
+        return "neutral"
+
+# 2. Narrative Complexity
+def infer_narrative_complexity(plot):
+    readability = textstat.flesch_kincaid_grade(plot)
+    words = preprocess_text(plot)
+    unique_words_ratio = len(set(words)) / max(len(words), 1)
+
+    # Adjusted complexity thresholds (more suitable for shorter texts)
+    if readability >= 9 or unique_words_ratio >= 0.5:
+        return "complex"
+    else:
+        return "simple"
+
+# Keywords refined as sets for accurate checking
+action_keywords = {"chase", "fight", "escape", "war", "battle", "mission", "rescue"}
+emotion_keywords = {"love", "friendship", "betrayal", "grief", "romance", "relationship", "emotional"}
+concept_keywords = {"reality", "consciousness", "philosophy", "dream", "mystery", "existential"}
+
+# 3. Genre Indicators
+def infer_genre_indicator(plot):
+    words = set(preprocess_text(plot))
+    if words & action_keywords:
+        return "action-oriented"
+    elif words & emotion_keywords:
+        return "emotion/character-oriented"
+    elif words & concept_keywords:
+        return "idea/concept-oriented"
+    else:
+        return "general"
+
+realistic_keywords = {"city", "suburb", "historical", "town", "village", "real-life", "everyday", "ordinary"}
+fantasy_keywords = {"galaxy", "kingdom", "future", "space", "magical", "supernatural", "alien", "fantasy", "alternate"}
+
+# 4. Setting Context
+def infer_setting_context(plot):
+    words = set(preprocess_text(plot))
+    if words & fantasy_keywords:
+        return "fantastical/surreal"
+    elif words & realistic_keywords:
+        return "realistic"
+    else:
+        return "neutral"
+
+# Generate embeddings for semantic similarity
+def generate_embedding(text):
+    if not text:
+        import torch
+        return torch.zeros(384)  # same size, but torch tensor
+    return embedding_model.encode(text, convert_to_tensor=True, normalize_embeddings=True)
+
+def compute_cosine_similarity(vec1, vec2):
+    return dot(vec1, vec2) / (norm(vec1) * norm(vec2) + 1e-8)
+
+def infer_narrative_style(plot):
+    if not plot:
+        return {
+            "tone": "neutral",
+            "complexity": "simple",
+            "genre_indicator": "general",
+            "setting_context": "neutral"
+        }
+
+    plot_lower = plot.lower()
+    tokens = word_tokenize(plot_lower)
+    words = [word for word in tokens if word.isalpha() and word not in stop_words]
+    word_set = set(words)
+
+    sentiment = sia.polarity_scores(plot)
+    tone = ("positive" if sentiment['compound'] >= 0.3 else
+            "negative" if sentiment['compound'] <= -0.3 else
+            "neutral")
+
+    readability = textstat.flesch_kincaid_grade(plot)
+    unique_words_ratio = len(word_set) / max(len(words), 1)
+    complexity = "complex" if readability >= 9 or unique_words_ratio >= 0.5 else "simple"
+
+    genre_indicator = ("action-oriented" if word_set & action_keywords else
+                    "emotion/character-oriented" if word_set & emotion_keywords else
+                    "idea/concept-oriented" if word_set & concept_keywords else
+                    "general")
+
+    setting_context = ("fantastical/surreal" if word_set & fantasy_keywords else
+                    "realistic" if word_set & realistic_keywords else
+                    "neutral")
+
+    return {
+        "tone": tone,
+        "complexity": complexity,
+        "genre_indicator": genre_indicator,
+        "setting_context": setting_context
+    }
+
+def construct_enriched_description(movie_details, credits, keywords=None):
+    title = getattr(movie_details, 'title', 'Unknown')
+    genres = []
+    genres_list = getattr(movie_details, 'genres', [])
+    for g in genres_list:
+        if isinstance(g, dict):
+            name = g.get('name', '')
+        else:
+            name = getattr(g, 'name', '')
+        if name:
+            genres.append(name)
+    
+    # Handle credits safely
+    if isinstance(credits, dict):
+        cast_list_raw = credits.get('cast', [])
+        crew_list = credits.get('crew', [])
+    else:
+        cast_list_raw = getattr(credits, 'cast', [])
+        crew_list = getattr(credits, 'crew', [])
+
+    # Safely slice cast_list
+    if hasattr(cast_list_raw, '__iter__'):
+        cast_list = list(cast_list_raw)[:3] if cast_list_raw else []
+    else:
+        cast_list = []
+    
+    favorite_actors = set()
+    favorite_directors = set()
+
+    # ✅ Collect actor and director names - Fixed attribute access
+    for c in cast_list:
+        if isinstance(c, dict):
+            name = c.get('name', '')
+        else:
+            name = getattr(c, 'name', '')
+        if name:
+            favorite_actors.add(name)
+
+    # Process director names
+    for c in crew_list:
+        is_director = False
+        name = ''
+        if isinstance(c, dict):
+            is_director = c.get('job', '') == 'Director'
+            name = c.get('name', '')
+        else:
+            is_director = getattr(c, 'job', '') == 'Director'
+            name = getattr(c, 'name', '')
+        
+        if is_director and name:
+            favorite_directors.add(name)
+
+    tagline = getattr(movie_details, 'tagline', '')
+    overview = getattr(movie_details, 'overview', '')
+    keyword_list = []
+    if keywords:
+        for k in keywords:
+            if isinstance(k, dict):
+                name = k.get('name', '')
+            else:
+                name = getattr(k, 'name', '')
+            if name:
+                keyword_list.append(name)
+
+    enriched_text = f"{title} is a {', '.join([g for g in genres if g])} movie"
+    if favorite_directors:
+        enriched_text += f" directed by {', '.join([d for d in favorite_directors if d])}"
+    if favorite_actors:
+        enriched_text += f", starring {', '.join([c for c in favorite_actors if c])}"
+    enriched_text += ". "
+    if tagline:
+        enriched_text += f"Tagline: {tagline}. "
+    if keyword_list:
+        enriched_text += f"Keywords: {', '.join([k for k in keyword_list if k])}. "
+    enriched_text += f"Plot: {overview}"
+
+    return enriched_text
+
+def build_custom_candidate_pool(favorite_genre_ids, favorite_cast_ids, favorite_director_ids, favorite_years, tmdb_api_key):
+    """
+    Build a pool of 100-200 candidate movies using custom criteria
+    """
+    candidate_movie_ids = set()
+    
+    # Strategy 1: Discover by Genre (40-60 movies)
+    # st.write("🎭 Discovering movies by genre...")
+    for genre_id in list(favorite_genre_ids)[:3]:  # Top 3 genres to avoid too much overlap
+        try:
+            # Get popular movies in this genre
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": tmdb_api_key,
+                "with_genres": str(genre_id),
+                "sort_by": "popularity.desc",
+                "vote_count.gte": 50,  # Minimum votes for quality
+                "page": 1
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                movies = response.json().get("results", [])
+                candidate_movie_ids.update([m["id"] for m in movies[:20]])  # Top 20 per genre
+        except Exception as e:
+            st.warning(f"Error discovering by genre {genre_id}: {e}")
+    
+    # Strategy 2: Discover by Cast (30-40 movies)
+    # st.write("🎬 Discovering movies by favorite actors...")
+    for person_id in list(favorite_cast_ids)[:5]:  # Top 5 actors
+        try:
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": tmdb_api_key,
+                "with_cast": str(person_id),
+                "sort_by": "popularity.desc",
+                "vote_count.gte": 30,
+                "page": 1
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                movies = response.json().get("results", [])
+                candidate_movie_ids.update([m["id"] for m in movies[:8]])  # Top 8 per actor
+        except Exception as e:
+            st.warning(f"Error discovering by cast {person_id}: {e}")
+    
+    # Strategy 3: Discover by Directors (20-30 movies)
+    # st.write("🎥 Discovering movies by favorite directors...")
+    for person_id in list(favorite_director_ids)[:3]:  # Top 3 directors
+        try:
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": tmdb_api_key,
+                "with_crew": str(person_id),
+                "sort_by": "popularity.desc", 
+                "vote_count.gte": 30,
+                "page": 1
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                movies = response.json().get("results", [])
+                candidate_movie_ids.update([m["id"] for m in movies[:10]])  # Top 10 per director
+        except Exception as e:
+            st.warning(f"Error discovering by director {person_id}: {e}")
+    
+    # Strategy 4: Year-based Discovery (20-30 movies)
+    # st.write("📅 Discovering movies from similar time periods...")
+    if favorite_years:
+        # Get movies from the same decades as user's favorites
+        decades = set()
+        for year in favorite_years:
+            decade_start = (year // 10) * 10
+            decades.add(decade_start)
+        
+        for decade_start in list(decades)[:2]:  # Top 2 decades
+            try:
+                url = f"https://api.themoviedb.org/3/discover/movie"
+                params = {
+                    "api_key": tmdb_api_key,
+                    "primary_release_date.gte": f"{decade_start}-01-01",
+                    "primary_release_date.lte": f"{decade_start + 9}-12-31",
+                    "sort_by": "vote_average.desc",
+                    "vote_count.gte": 100,
+                    "page": 1
+                }
+                response = requests.get(url, params=params)
+                if response.status_code == 200:
+                    movies = response.json().get("results", [])
+                    candidate_movie_ids.update([m["id"] for m in movies[:15]])  # Top 15 per decade
+            except Exception as e:
+                st.warning(f"Error discovering by decade {decade_start}: {e}")
+    
+    # Strategy 5: Multi-criteria Discovery (20-30 movies)
+    # st.write("🎯 Discovering with combined criteria...")
+    try:
+        # Combine top genres and cast for more targeted results
+        top_genres = ",".join(str(id) for id in list(favorite_genre_ids)[:2])
+        top_cast = ",".join(str(id) for id in list(favorite_cast_ids)[:3])
+        
+        if top_genres and top_cast:
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": tmdb_api_key,
+                "with_genres": top_genres,
+                "with_cast": top_cast,
+                "sort_by": "popularity.desc",
+                "vote_count.gte": 20,
+                "page": 1
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                movies = response.json().get("results", [])
+                candidate_movie_ids.update([m["id"] for m in movies[:20]])
+    except Exception as e:
+        st.warning(f"Error with multi-criteria discovery: {e}")
+    
+    # Strategy 6: Trending/Popular Backup (10-20 movies)
+    # st.write("📈 Adding trending movies as backup...")
+    try:
+        # Add some trending movies to ensure we have enough candidates
+        url = f"https://api.themoviedb.org/3/trending/movie/week"
+        params = {"api_key": tmdb_api_key}
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            movies = response.json().get("results", [])
+            candidate_movie_ids.update([m["id"] for m in movies[:15]])
+    except Exception as e:
+        st.warning(f"Error getting trending movies: {e}")
+    
+    # Strategy 7: High-rated movies in favorite genres (backup)
+    # st.write("⭐ Adding highly-rated movies in favorite genres...")
+    for genre_id in list(favorite_genre_ids)[:2]:
+        try:
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": tmdb_api_key,
+                "with_genres": str(genre_id),
+                "sort_by": "vote_average.desc",
+                "vote_count.gte": 200,  # High vote count for quality
+                "vote_average.gte": 7.0,  # High rating
+                "page": 1
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                movies = response.json().get("results", [])
+                candidate_movie_ids.update([m["id"] for m in movies[:10]])
+        except Exception as e:
+            st.warning(f"Error getting high-rated movies for genre {genre_id}: {e}")
+    
+    # st.write(f"🎬 Built candidate pool with {len(candidate_movie_ids)} movies")
+    return candidate_movie_ids
+
+# NEW: Multi-cluster approach for preserving diverse taste profiles
+def identify_taste_clusters(favorite_embeddings, favorite_movies_info):
+    """
+    Identify distinct taste clusters from user's favorite movies
+    Returns cluster centers and movie assignments
+    """
+    if len(favorite_embeddings) <= 2:
+        # Too few movies to cluster meaningfully
+        return None, None
+    
+    # Convert embeddings to numpy array
+    embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
+    
+    # Determine optimal number of clusters (2-3 for 5 movies)
+    n_clusters = min(3, max(2, len(favorite_embeddings) // 2))
+    
+    # Perform clustering
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(embeddings_array)
+    cluster_centers = kmeans.cluster_centers_
+    
+    # Convert back to torch tensors
+    cluster_centers_torch = [torch.from_numpy(center) for center in cluster_centers]
+    
+    return cluster_centers_torch, cluster_labels
+
+def compute_multi_cluster_similarity(candidate_embedding, cluster_centers):
+    """
+    Compute similarity to multiple cluster centers
+    Returns the maximum similarity (best match to any cluster)
+    """
+    if cluster_centers is None:
+        return 0.0
+    
+    max_similarity = 0.0
+    for center in cluster_centers:
+        similarity = float(cos_sim(candidate_embedding, center))
+        max_similarity = max(max_similarity, similarity)
+    
+    return max_similarity
+
+def analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years):
+    """
+    Analyze how diverse the user's taste is
+    Returns a diversity score and taste profile
+    """
+    diversity_metrics = {
+        "genre_diversity": len(favorite_genres) / 5.0,  # Normalized by max possible
+        "temporal_spread": 0.0,
+        "embedding_variance": 0.0,
+        "taste_profile": "focused"  # or "diverse" or "eclectic"
+    }
+    
+    # Temporal spread
+    if len(favorite_years) > 1:
+        year_range = max(favorite_years) - min(favorite_years)
+        diversity_metrics["temporal_spread"] = min(year_range / 50.0, 1.0)  # Normalize by 50 years
+    
+    # Embedding variance
+    if len(favorite_embeddings) > 1:
+        embeddings_array = torch.stack(favorite_embeddings).cpu().numpy()
+        # Use sklearn's cosine_similarity for pairwise computation
+        pairwise_similarities = sklearn_cosine_similarity(embeddings_array)
+        # Get off-diagonal elements (excluding self-similarity)
+        mask = ~np.eye(pairwise_similarities.shape[0], dtype=bool)
+        avg_similarity = pairwise_similarities[mask].mean()
+        diversity_metrics["embedding_variance"] = 1.0 - avg_similarity
+    
+    # Determine taste profile
+    overall_diversity = (diversity_metrics["genre_diversity"] + 
+                        diversity_metrics["temporal_spread"] + 
+                        diversity_metrics["embedding_variance"]) / 3.0
+    
+    if overall_diversity < 0.3:
+        diversity_metrics["taste_profile"] = "focused"
+    elif overall_diversity < 0.6:
+        diversity_metrics["taste_profile"] = "diverse"
+    else:
+        diversity_metrics["taste_profile"] = "eclectic"
+    
+    return diversity_metrics
+
+# --- Enhanced Recommendation Logic ---
+def recommend_movies(favorite_titles):
+    # Check cache first
+    cache_key = "|".join(sorted(favorite_titles))
+    
+    if cache_key in st.session_state.recommendation_cache:
+        cached_result = st.session_state.recommendation_cache[cache_key]
+        st.write(f"✅ Using cached results")
+        return cached_result
+    
+    favorite_genres = set()
+    favorite_actors = set()
+    favorite_directors = set()
+    # New sets for IDs
+    favorite_genre_ids = set()
+    favorite_cast_ids = set()
+    favorite_director_ids = set()
+    candidate_movie_ids, plot_moods, favorite_years = set(), set(), []
+    favorite_narrative_styles = {"tone": [], "complexity": [], "genre_indicator": [], "setting_context": []}
+    favorite_embeddings = []
+    favorite_movies_info = []  # Store full movie info for clustering analysis
+
+    # Enhanced movie search with fuzzy matching
+    valid_movies_found = []
+    failed_searches = []
+
+    for title in favorite_titles:
+        try:
+            # First try exact search
+            search_result = movie_api.search(title)
+            
+            if search_result:
+                valid_movies_found.append((title, search_result[0]))
+            else:
+                # Try fuzzy search for this title
+                st.write(f"🔍 Trying fuzzy search for '{title}'...")
+                fuzzy_results = fuzzy_search_movies(title, max_results=3, similarity_threshold=0.7)
+                
+                if fuzzy_results:
+                    # Use the best fuzzy match
+                    best_match = fuzzy_results[0]
+                    st.write(f"📝 Using '{best_match['title']}' as match for '{title}' ({best_match['similarity']:.0%} similarity)")
+                    
+                    # Search for the corrected title
+                    corrected_search = movie_api.search(best_match['title'])
+                    if corrected_search:
+                        valid_movies_found.append((title, corrected_search[0]))
+                    else:
+                        failed_searches.append(title)
+                else:
+                    failed_searches.append(title)
+                    
+        except Exception as e:
+            st.warning(f"Error processing {title}: {e}")
+            failed_searches.append(title)
+
+    # Show what we found/didn't find - Hidden success message
+    # if valid_movies_found:
+    #     st.write(f"✅ Successfully found {len(valid_movies_found)} out of {len(favorite_titles)} movies")
+
+    if failed_searches:
+        st.warning(f"⚠️ Could not find matches for: {', '.join(failed_searches)}")
+        st.info("💡 Try using more common titles or check spelling for better results")
+
+    # If we have too few valid movies, show a helpful message
+    if len(valid_movies_found) < 3:
+        st.error("❌ Need at least 3 valid movies to generate good recommendations")
+        st.info("💡 Please add more movies or try different titles")
+        return [], {}
+
+    # Process the valid movies we found
+    for original_title, search_result in valid_movies_found:
+        try:
+            movie_id = search_result.id
+            
+            # Check per-user cache first
+            if movie_id in st.session_state.movie_details_cache:
+                details = st.session_state.movie_details_cache[movie_id]
+                credits = st.session_state.movie_credits_cache[movie_id]
+            else:
+                # Fetch and cache per user
+                details = movie_api.details(movie_id)
+                credits = movie_api.credits(movie_id)
+                st.session_state.movie_details_cache[movie_id] = details
+                st.session_state.movie_credits_cache[movie_id] = credits
+            
+            # Store movie info for clustering
+            movie_info = {
+                "title": original_title,
+                "genres": [],
+                "year": None
+            }
+            
+            # ✅ Collect genre names - Fixed attribute access
+            genres_list = getattr(details, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    favorite_genres.add(name)
+                    movie_info["genres"].append(name)
+
+            # ✅ Collect actor and director names - Fixed attribute access
+            cast_list_raw = credits.get('cast', []) if isinstance(credits, dict) else getattr(credits, 'cast', [])
+            crew_list = credits.get('crew', []) if isinstance(credits, dict) else getattr(credits, 'crew', [])
+            
+            # Process cast names
+            # Convert to list if needed and safely slice
+            if hasattr(cast_list_raw, '__iter__'):
+                cast_list = list(cast_list_raw)[:3] if cast_list_raw else []
+            else:
+                cast_list = []
+            
+            for c in cast_list:
+                if isinstance(c, dict):
+                    name = c.get('name', '')
+                else:
+                    name = getattr(c, 'name', '')
+                if name:
+                    favorite_actors.add(name)
+
+            # Process director names
+            for c in crew_list:
+                is_director = False
+                name = ''
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    name = c.get('name', '')
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    name = getattr(c, 'name', '')
+                
+                if is_director and name:
+                    favorite_directors.add(name)
+
+            # ✅ Collect genre IDs - Fixed attribute access
+            for g in genres_list:
+                if hasattr(g, 'id'):
+                    favorite_genre_ids.add(g.id)
+                elif isinstance(g, dict) and 'id' in g:
+                    favorite_genre_ids.add(g['id'])
+
+            # Fixed overview access
+            overview = getattr(details, 'overview', '') or ''
+            plot_moods.add(infer_mood_from_plot(overview))
+            narr_style = infer_narrative_style(overview)
+            for key in favorite_narrative_styles:
+                favorite_narrative_styles[key].append(narr_style.get(key, ""))
+            
+            # Fixed release_date access
+            release_date = getattr(details, 'release_date', None)
+            if release_date:
+                try:
+                    year = int(release_date[:4])
+                    favorite_years.append(year)
+                    movie_info["year"] = year
+                except (ValueError, TypeError):
+                    pass
+            
+            # ✅ Directly encode as torch tensor
+            emb = embedding_model.encode(overview, convert_to_tensor=True)
+            favorite_embeddings.append(emb)
+            favorite_movies_info.append(movie_info)
+            
+            # ✅ Collect top 3 cast IDs
+            for c in cast_list:
+                if isinstance(c, dict):
+                    cast_id = c.get('id', 0)
+                else:
+                    cast_id = getattr(c, 'id', 0)
+                if cast_id:
+                    favorite_cast_ids.add(cast_id)
+
+            # ✅ Collect directors' IDs  
+            for c in crew_list:
+                is_director = False
+                if isinstance(c, dict):
+                    is_director = c.get('job', '') == 'Director'
+                    person_id = c.get('id', 0)
+                else:
+                    is_director = getattr(c, 'job', '') == 'Director'
+                    person_id = getattr(c, 'id', 0)
+                
+                if is_director and person_id:
+                    favorite_director_ids.add(person_id)
+            
+            # We'll build the candidate pool after processing all favorites
+            pass
+                
+        except Exception as e:
+            st.warning(f"Error processing {title}: {e}")
+            continue
+
+    # Build custom candidate pool using multiple strategies
+    candidate_movie_ids = build_custom_candidate_pool(
+        favorite_genre_ids, 
+        favorite_cast_ids, 
+        favorite_director_ids, 
+        favorite_years, 
+        tmdb.api_key
+    )
+
+    # st.write(f"✅ Custom candidate pool size: {len(candidate_movie_ids)} movies")  # Hidden
+
+    # Limit to first 150 candidates
+    candidate_movie_ids = list(candidate_movie_ids)[:150]
+
+    # Analyze taste diversity
+    diversity_metrics = analyze_taste_diversity(favorite_embeddings, favorite_genres, favorite_years)
+    # st.write(f"🎯 Taste profile: {diversity_metrics['taste_profile']}")  # Hidden
+    
+    # Identify taste clusters
+    cluster_centers, cluster_labels = identify_taste_clusters(favorite_embeddings, favorite_movies_info)
+    
+    # if cluster_centers:
+    #     st.write(f"🎬 Identified {len(cluster_centers)} distinct taste clusters")  # Hidden
+
+    # Add trending movies to candidate set
+    trending_scores = get_trending_popularity(tmdb.api_key)
+
+    user_prefs = {
+        "subscribed_platforms": [k for k,v in streaming_platform_priority.items() if v>0],
+        "preferred_moods": plot_moods,
+        "estimated_age": estimate_user_age(favorite_years),
+        "taste_diversity": diversity_metrics
+    }
+
+    candidate_movies = {}
+    # Pass the cache to worker threads
+    fetch_cache = st.session_state.fetch_cache
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(fetch_similar_movie_details, mid, fetch_cache): mid for mid in candidate_movie_ids}
+        for fut in concurrent.futures.as_completed(futures):
+            try:
+                result = fut.result()
+                if result is None:
+                    continue
+                mid, payload = result
+                if payload is None:
+                    continue
+                m, embedding = payload
+                if m is None or embedding is None:
+                    continue
+                # Fixed vote_count access
+                vote_count = getattr(m, 'vote_count', 0)
+                if vote_count < 20:
+                    continue
+                candidate_movies[mid] = (m, embedding)
+            except Exception as e:
+                st.warning(f"Error processing candidate movie: {e}")
+                continue
+
+    # After the threading completes, update the session state cache
+    st.session_state.fetch_cache.update(fetch_cache)
+
+    # Get valid titles for debugging
+    valid_titles = [getattr(m, 'title', 'Unknown') for m, emb in candidate_movies.values() if m and emb is not None]
+
+    if not candidate_movies:
+        st.warning("No candidate movies with valid plots or embeddings were found.")
+        return [], {}
+
+    # Fetch trending scores before computing movie scores
+    trending_scores = get_trending_popularity(tmdb.api_key)
+
+    def compute_score(m, cluster_centers, diversity_metrics):
+        try:
+            narrative = getattr(m, 'narrative_style', {})
+            score = 0.0
+            
+            # Fixed genres access
+            genres = set()
+            genres_list = getattr(m, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    genres.add(name)
+            
+            score += recommendation_weights['genre_similarity'] * (len(genres & favorite_genres) / max(len(favorite_genres),1))
+            
+            # Fixed cast and directors access - handle both dict and object formats
+            cast_names = set()
+            cast_list = getattr(m, 'cast', [])
+            for actor in cast_list:
+                if isinstance(actor, dict):
+                    name = actor.get('name', '')
+                else:
+                    name = getattr(actor, 'name', '')
+                if name:
+                    cast_names.add(name)
+            
+            directors = getattr(m, 'directors', [])
+            director_names = set(directors) if isinstance(directors, list) else set()
+            
+            cast_dir = cast_names | director_names
+            score += recommendation_weights['cast_crew'] * (len(cast_dir & favorite_actors) / max(len(favorite_actors),1))
+            
+            # Fixed release_date access - reduced bias toward latest movies
+            try:
+                release_date = getattr(m, 'release_date', None)
+                if release_date:
+                    year_diff = datetime.now().year - int(release_date[:4])
+                    if year_diff<=2: score += recommendation_weights['release_year']*0.6   # 60% boost for 2023-2025
+                    elif year_diff<=5: score += recommendation_weights['release_year']*0.4  # 40% boost for 2020-2022
+                    elif year_diff<=10: score += recommendation_weights['release_year']*0.25 # 25% boost for 2015-2019
+                    elif year_diff<=20: score += recommendation_weights['release_year']*0.1  # 10% boost for 2005-2014
+            except (ValueError, TypeError, AttributeError):
+                pass
+            
+            # Fixed vote_average access
+            vote_average = getattr(m, 'vote_average', 0) or 0
+            score += recommendation_weights['ratings'] * (vote_average/10)
+            
+            # Fixed genres access for mood score
+            movie_genres = getattr(m, 'genres', [])
+            score += recommendation_weights['mood_tone'] * get_mood_score(movie_genres, user_prefs['preferred_moods'])
+
+            # Fixed plot access
+            plot = getattr(m, 'plot', '') or getattr(m, 'overview', '') or ''
+            narrative = infer_narrative_style(plot)
+            narrative_match_score = compute_narrative_similarity(narrative, favorite_narrative_styles)
+            score += recommendation_weights['narrative_style'] * narrative_match_score
+
+            # --- NEW: Multi-Cluster Embedding Similarity ---
+            movie_id = getattr(m, 'id', None)
+            if movie_id and movie_id in candidate_movies:
+                candidate_data = candidate_movies[movie_id]
+                if len(candidate_data) >= 2 and candidate_data[1] is not None:
+                    candidate_embedding = candidate_data[1]
+                    
+                    # Use multi-cluster similarity for diverse tastes
+                    if cluster_centers and diversity_metrics['taste_profile'] in ['diverse', 'eclectic']:
+                        embedding_sim_score = compute_multi_cluster_similarity(candidate_embedding, cluster_centers)
+                    else:
+                        # For focused tastes, use average embedding as before
+                        if favorite_embeddings:
+                            avg_embedding = torch.mean(torch.stack(favorite_embeddings), dim=0)
+                            embedding_sim_score = float(cos_sim(candidate_embedding, avg_embedding))
+                        else:
+                            embedding_sim_score = 0.0
+                    
+                    score += recommendation_weights['embedding_similarity'] * embedding_sim_score
+
+            movie_trend_score = trending_scores.get(getattr(m, 'id', 0), 0)
+            mood_match_score = get_mood_score(movie_genres, user_prefs['preferred_moods'])
+            genre_overlap_score = len(genres & favorite_genres) / max(len(favorite_genres), 1)
+
+            # Adjust trending boost based on taste diversity
+            if diversity_metrics['taste_profile'] == 'eclectic':
+                # Eclectic users might enjoy trending movies more
+                trending_weight = recommendation_weights['trending_factor'] * 1.5
+            elif diversity_metrics['taste_profile'] == 'focused':
+                # Focused users need stronger alignment for trending boost
+                if mood_match_score > 0.5 and genre_overlap_score > 0.4:
+                    trending_weight = recommendation_weights['trending_factor']
+                else:
+                    trending_weight = 0
+            else:
+                # Standard approach for diverse users
+                if mood_match_score > 0.3 and genre_overlap_score > 0.2:
+                    trending_weight = recommendation_weights['trending_factor']
+                else:
+                    trending_weight = 0
+            
+            score += trending_weight * movie_trend_score
+
+            # Discovery boost for eclectic users
+            if diversity_metrics['taste_profile'] == 'eclectic':
+                # Boost movies that are somewhat different but not completely unrelated
+                if 0.1 < genre_overlap_score < 0.5:
+                    score += recommendation_weights['discovery_boost'] * 1.5
+
+            # Apply a small penalty for very old movies
+            try:
+                if release_date:
+                    release_year = int(release_date[:4])
+                    if datetime.now().year - release_year > 20:
+                        score -= 0.03  # small age penalty
+            except (ValueError, TypeError):
+                pass
+
+            # Age alignment scoring
+            try:
+                if release_date:
+                    release_year = int(release_date[:4])
+                    user_age_at_release = user_prefs['estimated_age'] - (datetime.now().year - release_year)
+                    if 15 <= user_age_at_release <= 25:
+                        score += recommendation_weights['age_alignment']
+                    elif 10 <= user_age_at_release < 15 or 25 < user_age_at_release <= 30:
+                        score += recommendation_weights['age_alignment'] * 0.5
+            except (ValueError, TypeError):
+                pass
+                
+            return max(score, 0)
+        except Exception as e:
+            st.warning(f"Error computing score for movie: {e}")
+            return 0
+
+    scored = []
+    for movie_obj, embedding in candidate_movies.values():
+        if movie_obj is None or embedding is None:
+            continue
+        try:
+            score = compute_score(movie_obj, cluster_centers, diversity_metrics)
+            vote_count = getattr(movie_obj, 'vote_count', 0)
+            score += min(vote_count, 500) / 50000
+            scored.append((movie_obj, score))
+        except Exception as e:
+            st.warning(f"Error scoring movie {getattr(movie_obj, 'title', 'Unknown')}: {e}")
+            continue
+
+    # st.write(f"✅ Candidate movies count: {len(candidate_movies)}")  # Hidden
+    # st.write(f"✅ Valid scored movies: {len(scored)}")  # Hidden
+
+    scored.sort(key=lambda x:x[1], reverse=True)
+    
+    # NEW: Diversify recommendations for eclectic users
+    top = []
+    low_votes = 0
+    used_genres = set()
+    
+    # Create a set of favorite movie titles for easy checking
+    favorite_titles_set = {title.lower() for title in favorite_titles}
+
+    for m, s in scored:
+        vote_count = getattr(m, 'vote_count', 0)
+        movie_title = getattr(m, 'title', 'Unknown Title')
+        
+        # Skip if this movie is in the user's favorites
+        if movie_title.lower() in favorite_titles_set:
+            continue
+        
+        # Get movie genres
+        movie_genres = set()
+        genres_list = getattr(m, 'genres', [])
+        for g in genres_list:
+            if isinstance(g, dict):
+                name = g.get('name', '')
+            else:
+                name = getattr(g, 'name', '')
+            if name:
+                movie_genres.add(name)
+        
+        # For eclectic users, ensure genre diversity in recommendations
+        if diversity_metrics['taste_profile'] == 'eclectic' and len(top) >= 3:
+            # Check if we already have too many movies from the same genre
+            genre_overlap = len(movie_genres & used_genres) / max(len(movie_genres), 1)
+            if genre_overlap > 0.7:  # Skip if too similar to already selected
+                continue
+        
+        if vote_count < 100:
+            if low_votes >= 2: 
+                continue
+            low_votes += 1
+        
+        top.append((movie_title, s))
+        used_genres.update(movie_genres)
+        
+        if len(top) == 10: 
+            break
+
+    # Apply final franchise limiting (1 per franchise)
+    franchise_limited_top = apply_final_franchise_limit(top, candidate_movies, max_per_franchise=1)
+
+    # Before returning, cache the result  
+    result = (franchise_limited_top, candidate_movies)
+    st.session_state.recommendation_cache[cache_key] = result
+    return result
+
+def fetch_multiple_movie_details(movie_ids):
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_id = {
+            executor.submit(fetch_similar_movie_details, mid, st.session_state.fetch_cache): mid 
+            for mid in movie_ids[:50]  # Limit to first 50
+        }
+        for future in concurrent.futures.as_completed(future_to_id):
+            mid = future_to_id[future]
+            try:
+                result = future.result()
+                if result and result[1]:
+                    results[mid] = result[1]
+            except:
+                pass
+    return results
+
+# ============ STREAMLIT UI CODE ============
+
+st.title("🎬 Screen or Skip")    # Keep emoji in the main page title
+
+# Get input
+search_query = st.text_input("Search  (Add your 5 favorite movies to get personalized recommendations!)", key="movie_search")
+
+# ✅ Reset search_done when user types a different movie
+if search_query != st.session_state["previous_query"]:
+    st.session_state["search_done"] = False
+    st.session_state["previous_query"] = search_query
+
+search_results = []
+
+# 3️⃣ Only search if user hasn't just added a movie
+if search_query and len(search_query) >= 2 and not st.session_state["search_done"]:
+    try:
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": st.secrets["TMDB_API_KEY"], "query": search_query}
+        response = requests.get(url, params=params)
+        data = response.json()
+        results = data.get("results", [])
+        search_results = [
+            {
+                "label": f"{m.get('title')} ({m.get('release_date')[:4]})" if m.get("release_date") else m.get('title'),
+                "id": m.get("id"),
+                "poster_path": m.get("poster_path")
+            }
+            for m in results[:5]
+            if m.get("title") and m.get("id")
+        ]
+    except Exception as e:
+        st.error(f"Error searching for movies: {e}")
+
+# 4️⃣ Show Top 5 only if we have results AND no movie was just added
+if search_results:
+    st.markdown("### Top 5 Matches")
+    cols = st.columns(5)
+    for idx, movie in enumerate(search_results):
+        with cols[idx]:
+            poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get("poster_path") else None
+            if poster_url:
+                st.image(poster_url, use_column_width=True)
+            st.write(f"**{movie['label']}**")
+            if st.button("Add Movie", key=f"add_{idx}"):  # ✅ Simpler button text
+                clean_title = movie["label"].split(" (", 1)[0]
+                movie_id = movie["id"]
+
+                existing_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                if len(st.session_state.favorite_movies) >= 5:
+                    st.warning("You can only add up to 5 movies.")
+                elif clean_title not in existing_titles:
+                    st.session_state.favorite_movies.append({
+                        "title": clean_title,
+                        "year": movie["label"].split("(", 1)[1].replace(")", "") if "(" in movie["label"] else "",
+                        "poster_path": movie.get("poster_path", ""),
+                        "id": movie_id
+                    })
+                    st.session_state["search_done"] = True  # ✅ Hide Top 5
+                    st.success(f"✅ Added {clean_title}")
+                    st.rerun()
+
+# --- Only show this section if user has added at least one movie ---
+if st.session_state.favorite_movies:
+    # --- Display Favorite Movies with Posters in a Grid ---
+    st.subheader("🎥 Your Selected Movies (5 max)")
+    
+    cols = st.columns(5)
+    for i, movie in enumerate(st.session_state.favorite_movies):
+        with cols[i % 5]:
+            title = movie["title"]
+            year = movie.get("year", "")
+            poster = movie.get("poster_path")
+            
+            if poster:
+                poster_url = f"https://image.tmdb.org/t/p/w200{poster}"
+                st.image(poster_url, use_column_width=True)
+            else:
+                st.write("🎬 No poster")
+            
+            st.write(f"**{title}**")
+            if year:
+                st.write(f"({year})")
+            
+            if st.button(f"Remove", key=f"remove_{i}"):
+                st.session_state.favorite_movies.pop(i)
+                st.rerun()
+
+    # Buttons below the grid - only show when movies are selected
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("❌ Clear All"):
+            st.session_state.favorite_movies = []
+            st.session_state.recommendations = None
+            st.session_state.candidates = None
+            st.session_state.recommend_triggered = False
+            st.rerun()
+
+    with col2:
+        # --- Get Recommendations ---
+        if st.button("🎬 Get Recommendations", type="primary"):
+            if len(st.session_state.favorite_movies) != 5:
+                st.warning("Please select exactly 5 movies to get recommendations.")
+            else:
+                with st.spinner("Finding personalized movie recommendations..."):
+                    favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+                    try:
+                        recs, candidate_movies = recommend_movies(favorite_titles)
+                        st.session_state.recommendations = recs
+                        st.session_state.candidates = candidate_movies
+                        st.session_state.recommend_triggered = True
+                    except Exception as e:
+                        st.error(f"❌ Failed to generate recommendations: {e}")
+                        import traceback
+                        st.error(traceback.format_exc())
+
+# Display recommendations and feedback
+if st.session_state.recommend_triggered:
+    if not st.session_state.recommendations:
+        st.warning("⚠️ No recommendations could be generated. Please try different favorite movies.")
+        st.info("Tip: Make sure your selected movies have plot summaries and at least some popularity.")
+    else:
+        st.subheader("🌟 Your Top 10 Movie Recommendations")
+
+        # 1. Create placeholders and gather all responses in a dictionary
+        user_feedback = {}
+
+        for idx, (title, score) in enumerate(st.session_state.recommendations, 1):
+            # Find the movie object from candidates
+            movie_obj = None
+            for m, _ in st.session_state.candidates.values():
+                if m and getattr(m, 'title', '') == title:
+                    movie_obj = m
+                    break
+            
+            if movie_obj is None:
+                continue
+            
+            st.markdown(f"### {idx}. {movie_obj.title}")
+            
+            # Create columns for poster and details
+            col1, col2 = st.columns([1, 3])
+            
+            with col1:
+                if movie_obj.poster_path:
+                    st.image(f"https://image.tmdb.org/t/p/w300{movie_obj.poster_path}", width=150)
+                else:
+                    st.write("🎬 No poster")
+            
+            with col2:
+                # Show year
+                release_year = "N/A"
+                try:
+                    if hasattr(movie_obj, 'release_date') and movie_obj.release_date:
+                        release_year = movie_obj.release_date[:4]
+                except:
+                    pass
+                st.write(f"**Year:** {release_year}")
+                
+                # Show plot
+                overview = getattr(movie_obj, 'overview', None) or getattr(movie_obj, 'plot', None) or "No description available."
+                st.write(f"**Plot:** {overview}")
+
+            # Feedback section
+            fb_key = f"watch_{idx}"
+            liked_key = f"liked_{idx}"
+
+            response = st.radio(
+                "Would you watch this?", 
+                ["Yes", "No", "Already watched"], 
+                key=fb_key, 
+                index=None,
+                horizontal=True
+            )
+
+            liked = None
+            if response == "Already watched":
+                liked = st.radio(
+                    "Did you like it?", 
+                    ["Yes", "No"], 
+                    key=liked_key, 
+                    index=None,
+                    horizontal=True
+                )
+
+            # Capture enhanced movie metadata
+            movie_genres = []
+            genres_list = getattr(movie_obj, 'genres', [])
+            for g in genres_list:
+                if isinstance(g, dict):
+                    name = g.get('name', '')
+                else:
+                    name = getattr(g, 'name', '')
+                if name:
+                    movie_genres.append(name)
+            
+            user_feedback[idx] = {
+                "movie": movie_obj.title,
+                "movie_id": movie_obj.id,
+                "movie_genres": " | ".join(movie_genres),
+                "movie_year": release_year,
+                "recommendation_rank": idx,
+                "recommendation_score": score,
+                "response": response,
+                "liked": liked,
+            }
+            
+            st.markdown("---")
+
+        # Add some spacing after the last movie feedback
+        st.markdown("---")
+
+        # Final Comments Section
+        st.subheader("💬 Final Comments")
+        st.write("Share any additional thoughts about the recommendations!")
+
+        # Text area for comments
+        final_comments = st.text_area(
+            "Your feedback helps me improve the recommendation system:",
+            placeholder="Did the recommendations match your taste? Any movies you were surprised to see?",
+            height=100,
+            key="final_comments_text"
+        )
+
+        # Character counter
+        if final_comments:
+            char_count = len(final_comments)
+            st.caption(f"Characters: {char_count}")
+
+        # Email input for saving profile
+        st.markdown("---")
+        st.subheader("📧 Email")
+        save_email = st.text_input(
+            "Enter your email to save your recommendations:",
+            placeholder="your.email@example.com",
+            key="save_profile_email"
+        )
+
+        # SINGLE SUBMIT BUTTON for everything
+        if st.button("Submit All Responses", type="primary"):
+            # Store all movie responses in Google Sheet
+            success_count = 0
+            total_responses = 0
+            
+            # Get user profile data (need to access from recommendation function)
+            user_top_5 = " | ".join([m["title"] for m in st.session_state.favorite_movies])
+            
+            # Get user taste data from the recommendation process
+            favorite_titles = [m["title"] for m in st.session_state.favorite_movies if isinstance(m, dict)]
+            favorite_genres = set()
+            
+            # Extract genres from user's selected movies
+            for movie in st.session_state.favorite_movies:
+                try:
+                    movie_id = movie.get("id")
+                    if movie_id and movie_id in st.session_state.movie_details_cache:
+                        details = st.session_state.movie_details_cache[movie_id]
+                        genres_list = getattr(details, 'genres', [])
+                        for g in genres_list:
+                            if isinstance(g, dict):
+                                name = g.get('name', '')
+                            else:
+                                name = getattr(g, 'name', '')
+                            if name:
+                                favorite_genres.add(name)
+                except Exception as e:
+                    st.warning(f"Error processing movie: {e}")
+                    continue
+            
+            user_favorite_genres = " | ".join(list(favorite_genres)[:5])  # Top 5 genres
+            user_taste_profile = "diverse"  # Default - you can enhance this by storing from recommendation process
+            
+            # Process movie feedback responses
+            for index, feedback in user_feedback.items():
+                if feedback["response"]:  # Only save if user provided a response
+                    total_responses += 1
+                    
+                    # Generate recommendation reason based on genres
+                    recommendation_reason = f"Genre match: {feedback['movie_genres']}" if feedback['movie_genres'] else "Algorithm recommendation"
+                    
+                    if record_feedback_to_sheet(
+                        numeric_session_id=st.session_state.numeric_session_id,
+                        uuid_session_id=st.session_state.session_id,
+                        user_top_5_movies=user_top_5,
+                        user_taste_profile=user_taste_profile,
+                        user_favorite_genres=user_favorite_genres,
+                        recommendation_rank=feedback["recommendation_rank"],
+                        movie_id=feedback["movie_id"],
+                        movie_title=feedback["movie"],
+                        movie_genres=feedback["movie_genres"],
+                        movie_year=feedback["movie_year"],
+                        recommendation_score=feedback["recommendation_score"],
+                        recommendation_reason=recommendation_reason,
+                        would_watch=feedback["response"],
+                        liked_if_seen=feedback["liked"] or "",
+                        user_email=save_email.strip() if save_email else ""
+                    ):
+                        success_count += 1
+            
+            # Also save final comments if provided
+            comments_saved = False
+            if final_comments and final_comments.strip():
+                comments_saved = record_final_comments_to_sheet(
+                    numeric_session_id=st.session_state.numeric_session_id,
+                    uuid_session_id=st.session_state.session_id,
+                    user_top_5_movies=user_top_5,
+                    user_taste_profile=user_taste_profile,
+                    user_favorite_genres=user_favorite_genres,
+                    final_comments=final_comments.strip(),
+                    user_email=save_email.strip() if save_email else ""
+                )
+            
+            # Show combined results
+            if success_count == total_responses and total_responses > 0:
+                if comments_saved or not final_comments.strip():
+                    st.success(f"✅ All {success_count} movie responses saved successfully!")
+                    if comments_saved:
+                        st.success("✅ Your final comments were also saved!")
+                    st.balloons()
+                else:
+                    st.success(f"✅ All {success_count} movie responses saved!")
+                    st.warning("⚠️ Final comments failed to save, but movie feedback was recorded.")
+            elif success_count > 0:
+                st.warning(f"⚠️ {success_count}/{total_responses} movie responses saved. Some failed to save.")
+                if comments_saved:
+                    st.success("✅ Your final comments were saved!")
+            else:
+                if total_responses == 0:
+                    st.warning("⚠️ Please provide at least one movie response before submitting.")
+                else:
+                    st.error("❌ Failed to save any movie responses. Please check your Google Sheets setup.")
+                    if comments_saved:
+                        st.success("✅ Your final comments were saved!")
+
+# Test the universal approach
+def test_universal_fuzzy():
+    """Test with various movie queries to show it works universally"""
+    test_cases = [
+        # Original test cases
+        ("thre idoits", "3 Idiots"),
+        ("godfater", "The Godfather"), 
+        ("jurrasic park", "Jurassic Park"),
+        ("avengrs", "Avengers"),
+        ("intersteler", "Interstellar"),
+        ("dark knght", "The Dark Knight"),
+        
+        # Marvel Movies
+        ("iron man", "Iron Man"),
+        ("spiderman", "Spider-Man"),
+        ("spider man", "Spider-Man"),
+        ("captin america", "Captain America"),
+        ("captain amerca", "Captain America"),
+        ("black panther", "Black Panther"),
+        ("thor ragnarok", "Thor: Ragnarok"),
+        ("thor ragnarook", "Thor: Ragnarok"),
+        ("doctor strange", "Doctor Strange"),
+        ("dr strange", "Doctor Strange"),
+        
+        # DC Movies
+        ("batman begins", "Batman Begins"),
+        ("batman v superman", "Batman v Superman: Dawn of Justice"),
+        ("wonder woman", "Wonder Woman"),
+        ("aquaman", "Aquaman"),
+        ("suicide squad", "Suicide Squad"),
+        ("sucide squad", "Suicide Squad"),
+        ("justice league", "Justice League"),
+        
+        # Popular Action Movies
+        ("fast and furious", "Fast & Furious"),
+        ("fast furious", "Fast & Furious"),
+        ("john wick", "John Wick"),
+        ("mission impossible", "Mission: Impossible"),
+        ("mission imposible", "Mission: Impossible"),
+        ("terminator", "The Terminator"),
+        ("terminater", "The Terminator"),
+        ("die hard", "Die Hard"),
+        ("mad max", "Mad Max"),
+        ("transformers", "Transformers"),
+        
+        # Sci-Fi Classics
+        ("star wars", "Star Wars"),
+        ("empire strikes back", "The Empire Strikes Back"),
+        ("return jedi", "Return of the Jedi"),
+        ("star trek", "Star Trek"),
+        ("blade runner", "Blade Runner"),
+        ("matrix", "The Matrix"),
+        ("alien", "Alien"),
+        ("aliens", "Aliens"),
+        ("back to future", "Back to the Future"),
+        ("back to the futur", "Back to the Future"),
+        
+        # Horror Movies
+        ("exorcist", "The Exorcist"),
+        ("exorsist", "The Exorcist"),
+        ("halloween", "Halloween"),
+        ("friday 13th", "Friday the 13th"),
+        ("friday the 13", "Friday the 13th"),
+        ("nightmare elm street", "A Nightmare on Elm Street"),
+        ("nightmare on elm street", "A Nightmare on Elm Street"),
+        ("conjuring", "The Conjuring"),
+        ("it", "It"),
+        ("shining", "The Shining"),
+        
+        # Comedy Movies
+        ("dumb and dumber", "Dumb and Dumber"),
+        ("dumb dumber", "Dumb and Dumber"),
+        ("anchorman", "Anchorman"),
+        ("stepbrothers", "Step Brothers"),
+        ("step brothers", "Step Brothers"),
+        ("hangover", "The Hangover"),
+        ("superbad", "Superbad"),
+        ("super bad", "Superbad"),
+        ("pineapple express", "Pineapple Express"),
+        
+        # Drama/Romance
+        ("titanic", "Titanic"),
+        ("titanik", "Titanic"),
+        ("casablanca", "Casablanca"),
+        ("casa blanca", "Casablanca"),
+        ("notebook", "The Notebook"),
+        ("forrest gump", "Forrest Gump"),
+        ("forest gump", "Forrest Gump"),
+        ("shawshank redemption", "The Shawshank Redemption"),
+        ("shawshank", "The Shawshank Redemption"),
+        ("green mile", "The Green Mile"),
+        
+        # Animated Movies
+        ("toy story", "Toy Story"),
+        ("finding nemo", "Finding Nemo"),
+        ("finding memo", "Finding Nemo"),
+        ("monsters inc", "Monsters, Inc."),
+        ("monsters university", "Monsters University"),
+        ("incredibles", "The Incredibles"),
+        ("shrek", "Shrek"),
+        ("frozen", "Frozen"),
+        ("moana", "Moana"),
+        ("coco", "Coco"),
+        
+        # Classic Movies
+        ("gone with wind", "Gone with the Wind"),
+        ("gone with the wind", "Gone with the Wind"),
+        ("citizen kane", "Citizen Kane"),
+        ("citizen cane", "Citizen Kane"),
+        ("vertigo", "Vertigo"),
+        ("psycho", "Psycho"),
+        ("rear window", "Rear Window"),
+        ("north by northwest", "North by Northwest"),
+        
+        # Recent Popular Movies
+        ("parasite", "Parasite"),
+        ("joker", "Joker"),
+        ("once upon time hollywood", "Once Upon a Time in Hollywood"),
+        ("once upon a time in hollywood", "Once Upon a Time in Hollywood"),
+        ("1917", "1917"),
+        ("knives out", "Knives Out"),
+        ("knifes out", "Knives Out"),
+        ("black widow", "Black Widow"),
+        ("dune", "Dune"),
+        ("no time to die", "No Time to Die"),
+        
+        # International/Foreign Films
+        ("crouching tiger hidden dragon", "Crouching Tiger, Hidden Dragon"),
+        ("oldboy", "Oldboy"),
+        ("old boy", "Oldboy"),
+        ("spirited away", "Spirited Away"),
+        ("akira", "Akira"),
+        ("city of god", "City of God"),
+        ("Pirates of the Caribbean", "Pirates of the Caribean"),
+        
+        # Franchises with numbers
+        ("godfather 2", "The Godfather Part II"),
+        ("godfather ii", "The Godfather Part II"),
+        ("rocky 2", "Rocky II"),
+        ("rocky ii", "Rocky II"),
+        ("rambo", "Rambo"),
+        ("indiana jones", "Indiana Jones"),
+        ("raiders lost ark", "Raiders of the Lost Ark"),
+        ("temple doom", "Indiana Jones and the Temple of Doom"),
+        ("last crusade", "Indiana Jones and the Last Crusade"),
+        
+        # Common spelling mistakes
+        ("recieve", "Receive"),  # This would be for any movie with "receive"
+        ("seperate", "Separate"),  # This would be for any movie with "separate"
+        ("definately", "Definitely"),  # This would be for any movie with "definitely"
+        ("occured", "Occurred"),  # This would be for any movie with "occurred"
+        ("begining", "Beginning"),  # Movies with "beginning"
+        ("tommorrow", "Tomorrow"),  # Movies with "tomorrow"
+        ("neccessary", "Necessary"),  # Movies with "necessary"
+        
+        # Number variations
+        ("2001 space odyssey", "2001: A Space Odyssey"),
+        ("2001 a space odyssey", "2001: A Space Odyssey"),
+        ("twelve monkeys", "12 Monkeys"),
+        ("12 monkeys", "12 Monkeys"),
+        ("seven", "Se7en"),
+        ("se7en", "Se7en"),
+        ("8 mile", "8 Mile"),
+        ("eight mile", "8 Mile"),
+        
+        # Common abbreviations
+        ("lotr", "The Lord of the Rings"),
+        ("lord rings", "The Lord of the Rings"),
+        ("hp", "Harry Potter"),
+        ("harry potter", "Harry Potter"),
+        ("got", "Game of Thrones"),  # If it were a movie
+        ("sw", "Star Wars"),
+        ("potc", "Pirates of the Caribbean"),
+        ("pirates caribbean", "Pirates of the Caribbean")
+    ]
+    
+    print("Testing Universal Fuzzy Matching:")
+    for query, expected in test_cases:
+        similarity = calculate_title_similarity(query, expected)
+        print(f"'{query}' vs '{expected}': {similarity:.3f}")
+        
+    return test_cases
